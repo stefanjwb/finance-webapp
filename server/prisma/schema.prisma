@@ -1,0 +1,33 @@
+// server/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Het Gebruiker model (vertaald vanuit je Flask User class)
+model User {
+  id            Int      @id @default(autoincrement())
+  username      String   @unique
+  email         String   @unique
+  password      String   // Dit is de gehashte versie
+  role          String   @default("user") // 'user', 'organizer', 'admin'
+  createdAt     DateTime @default(now())
+
+  // Relaties (komen later van pas)
+  // activities    Activity[] 
+  // signups       Signup[]
+}
+
+// Het Uitnodigingscode model (voor registratie)
+model InvitationCode {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  role      String   @default("user")
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
