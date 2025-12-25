@@ -17,8 +17,8 @@ import {
 } from '@mantine/core';
 import { IconAt, IconLock, IconBrandFacebook, IconAlertCircle } from '@tabler/icons-react';
 
-// Constanten
-const BRAND_COLOR = '#710081';
+// Constanten - Aangepast naar Teal (Groen)
+const BRAND_COLOR = '#12b886'; // Mantine Teal
 
 function Login() {
     // State management
@@ -83,9 +83,11 @@ function Login() {
                 visibleFrom="md" 
                 style={{ 
                     flex: 1,
+                    // Afbeelding toegevoegd
+                    backgroundImage: 'url("https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?auto=format&fit=crop&q=80")',
                     backgroundSize: 'cover',
-                    backgroundPosition: 'top center',
-                    backgroundColor: '#2d0a31'
+                    backgroundPosition: 'center',
+                    backgroundColor: '#E6FCF5' // Fallback kleur (licht groen)
                 }}
             />
 
@@ -100,12 +102,12 @@ function Login() {
             }}>
                 <Container size="xs" w="100%">
                     
-                    <Stack align="center" mb={30}>
+                    <Stack align="left" mb={30}>
                         <Title order={1} fw={900} c="dark" style={{ fontFamily: 'Inter, sans-serif' }}>
-                            Welkom Terug
+                            Log in bij Belio
                         </Title>
                         <Text c="dimmed" size="sm">
-                            Log in bij Belio
+                            Welkom terug! Vul je gegevens in om verder te gaan.
                         </Text>
                     </Stack>
         
@@ -157,7 +159,7 @@ function Login() {
                                     root: { 
                                         backgroundColor: BRAND_COLOR, 
                                         transition: 'background-color 0.2s', 
-                                        '&:hover': { backgroundColor: '#5a0066' } 
+                                        '&:hover': { backgroundColor: '#099268' } // Iets donkerder groen voor hover
                                     } 
                                 }}
                             >

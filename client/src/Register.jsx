@@ -1,29 +1,29 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { 
-    TextInput, 
-    PasswordInput, 
-    Anchor, 
-    Title, 
-    Text, 
-    Container, 
-    Group, 
-    Button, 
-    Box, 
-    Stack, 
+import {
+    TextInput,
+    PasswordInput,
+    Anchor,
+    Title,
+    Text,
+    Container,
+    Group,
+    Button,
+    Box,
+    Stack,
     Divider,
-    Alert 
+    Alert
 } from '@mantine/core';
-import { IconAt, IconLock, IconBrandFacebook, IconUser, IconAlertCircle } from '@tabler/icons-react';
+import { IconUser, IconAt, IconLock, IconBrandFacebook, IconAlertCircle } from '@tabler/icons-react';
 
-// Constanten
-const BRAND_COLOR = '#710081';
+// Constanten - Aangepast naar Teal
+const BRAND_COLOR = '#12b886'; 
 
 function Register() {
-    // State management
+    // State management: 'email' toegevoegd voor registratie
     const [formData, setFormData] = useState({ username: '', email: '', password: '' });
     const [error, setError] = useState('');
-    const [loading, setLoading] = useState(false); // Nieuw: laadstatus
+    const [loading, setLoading] = useState(false); 
     
     const navigate = useNavigate();
 
@@ -33,9 +33,9 @@ function Register() {
         setLoading(true);
 
         try {
-            // API URL bepalen
             const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
             
+            // Endpoint aangepast naar /register
             const response = await fetch(`${API_URL}/api/auth/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -48,15 +48,14 @@ function Register() {
                 throw new Error(data.error || 'Registratie mislukt. Probeer het opnieuw.');
             }
 
-            // Succes scenario
-            // Je kunt hier eventueel een 'Success Notification' tonen in plaats van alert
-            alert('Account succesvol aangemaakt! Je wordt nu doorgestuurd naar de inlogpagina.');
-            navigate('/login'); 
+            // Bij succes direct doorsturen naar login of dashboard (afhankelijk van je flow)
+            console.log("Registratie succesvol");
+            navigate('/login');
 
         } catch (err) {
             console.error(err);
             setError(err.message);
-            setLoading(false); // Stop laden alleen bij fout
+            setLoading(false); 
         }
     };
 
@@ -68,17 +67,19 @@ function Register() {
         <Box style={{ display: 'flex', minHeight: '100vh', width: '100vw' }}>
             
             {/* ================= LINKER KANT (Afbeelding) ================= */}
+            {/* Zelfde afbeelding en stijl als Login voor consistentie */}
             <Box 
                 visibleFrom="md" 
                 style={{ 
                     flex: 1,
+                    backgroundImage: 'url("https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?auto=format&fit=crop&q=80")',
                     backgroundSize: 'cover',
-                    backgroundPosition: 'top center',
-                    backgroundColor: '#2d0a31'
+                    backgroundPosition: 'center',
+                    backgroundColor: '#E6FCF5'
                 }}
             />
 
-            {/* ================= RECHTER KANT (Registratie Formulier) ================= */}
+            {/* ================= RECHTER KANT (Formulier) ================= */}
             <Box style={{ 
                 flex: 1, 
                 display: 'flex', 
@@ -90,18 +91,14 @@ function Register() {
                 <Container size="xs" w="100%">
                     
                     <Stack align="center" mb={30}>
-                        <Title 
-                            order={1} fw={900} c="dark" 
-                            style={{ fontFamily: 'Inter, sans-serif', fontSize: '2rem' }}
-                        >
-                            Lid worden
+                        <Title order={1} fw={900} c="dark" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            Maak een account
                         </Title>
-                        <Text c="dimmed" size="sm" fw={500}>
-                            Maak een account aan bij Belio
+                        <Text c="dimmed" size="sm">
+                            Start vandaag nog met Belio
                         </Text>
                     </Stack>
         
-                    {/* Foutmelding component */}
                     {error && (
                         <Alert icon={<IconAlertCircle size={16} />} title="Foutmelding" color="red" variant="light" mb="lg">
                             {error}
@@ -110,35 +107,36 @@ function Register() {
         
                     <form onSubmit={handleSubmit}>
                         <Stack gap="md">
-                            {/* Gebruikersnaam */}
+                            {/* Extra veld: Gebruikersnaam */}
                             <TextInput 
                                 label="Gebruikersnaam"
-                                placeholder="Kies een gebruikersnaam" 
-                                size="md" required
+                                placeholder="Je naam" 
+                                size="md" 
+                                required
                                 disabled={loading}
                                 leftSection={<IconUser size={18} stroke={1.5} color="#ced4da" />}
                                 value={formData.username}
                                 onChange={(e) => handleChange('username', e.currentTarget.value)}
                             />
 
-                            {/* E-mail */}
+                            {/* Extra veld: E-mail */}
                             <TextInput 
                                 label="E-mailadres"
-                                placeholder="jouw@email.nl" 
-                                size="md" required
-                                mt="xs"
+                                placeholder="je@email.nl" 
+                                size="md" 
+                                required
+                                type="email"
                                 disabled={loading}
                                 leftSection={<IconAt size={18} stroke={1.5} color="#ced4da" />}
                                 value={formData.email}
                                 onChange={(e) => handleChange('email', e.currentTarget.value)}
                             />
                             
-                            {/* Wachtwoord */}
                             <PasswordInput 
                                 label="Wachtwoord"
                                 placeholder="Kies een sterk wachtwoord" 
-                                size="md" required
-                                mt="xs"
+                                size="md" 
+                                required
                                 disabled={loading}
                                 leftSection={<IconLock size={18} stroke={1.5} color="#ced4da" />}
                                 value={formData.password}
@@ -146,14 +144,17 @@ function Register() {
                             />
                             
                             <Button 
-                                fullWidth mt="xl" size="md" type="submit"
+                                fullWidth 
+                                mt="md" 
+                                size="md" 
+                                type="submit"
                                 loading={loading}
                                 color={BRAND_COLOR}
                                 styles={{ 
                                     root: { 
                                         backgroundColor: BRAND_COLOR, 
                                         transition: 'background-color 0.2s', 
-                                        '&:hover': { backgroundColor: '#5a0066' } 
+                                        '&:hover': { backgroundColor: '#099268' } 
                                     } 
                                 }}
                             >
@@ -162,7 +163,7 @@ function Register() {
                         </Stack>
                     </form>
 
-                    <Divider label="Of registreer met" labelPosition="center" my="lg" />
+                    <Divider label="Of meld je aan met" labelPosition="center" my="lg" />
 
                     <Group grow mb="md">
                         <Button 
@@ -187,9 +188,9 @@ function Register() {
                     </Group>
         
                     <Text ta="center" mt="xl" size="sm" c="dimmed">
-                        Al een account?{' '}
+                        Heb je al een account?{' '}
                         <Anchor component={Link} to="/login" fw={700} c={BRAND_COLOR}>
-                            Log hier in
+                            Log in
                         </Anchor>
                     </Text>
                 </Container>
@@ -198,7 +199,7 @@ function Register() {
     );
 }
 
-// Google Icoon Helper
+// Compacte Google Icon component (hergebruikt)
 function GoogleIcon(props) {
     return (
         <svg {...props} viewBox="0 0 24 24" width="1rem" height="1rem" xmlns="http://www.w3.org/2000/svg">

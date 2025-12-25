@@ -30,7 +30,7 @@ app.use('/api/transactions', transactionRoutes);
 app.get('/', (req, res) => {
     res.status(200).json({ 
         status: 'online', 
-        message: 'De Overdruiven API werkt correct!' 
+        message: 'De Belio API werkt correct!' 
     });
 });
 
