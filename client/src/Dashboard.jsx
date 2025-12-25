@@ -3,12 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { 
     AppShell, Container, Title, Text, Group, Paper, Button, SimpleGrid, 
     ThemeIcon, Table, ActionIcon, Avatar, Menu, rem, Modal, TextInput, 
-    NumberInput, Select, Stack, SegmentedControl, Center, Loader 
+    NumberInput, Select, Stack, SegmentedControl, Center, Loader, Box
 } from '@mantine/core';
 import { 
     IconWallet, IconArrowUpRight, IconArrowDownLeft, IconPlus, IconLogout, 
-    IconLayoutDashboard, IconTrash 
+    IconLayoutDashboard, IconTrash, IconChartPie3 
 } from '@tabler/icons-react';
+
+// Consistent Brand Color from LandingPage/Login
+const BRAND_COLOR = '#12b886'; 
 
 function Dashboard() {
     const navigate = useNavigate();
@@ -128,17 +131,21 @@ function Dashboard() {
     ));
 
     return (
-        <AppShell header={{ height: 60 }} padding="md" style={{ background: '#f8f9fa' }}>
+        <AppShell header={{ height: 70 }} padding="md" style={{ background: '#fcfcfc' }}>
             <AppShell.Header>
-                <Container size="xl" h="100%">
+                <Container size="lg" h="100%">
                     <Group justify="space-between" h="100%">
-                        <Group>
-                            <ThemeIcon size="lg" radius="md" color="grape" variant="filled"><IconWallet size={20} /></ThemeIcon>
-                            <Title order={3} fw={800}>Belio Finance</Title>
+                        <Group gap="xs" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
+                            <ThemeIcon size={30} radius="md" color="teal" variant="light">
+                                <IconChartPie3 size={18} />
+                            </ThemeIcon>
+                            <Text fw={900} size="xl" c="teal">Belio</Text>
                         </Group>
-                        <Menu shadow="md" width={200}>
+                        <Menu shadow="md" width={200} position="bottom-end">
                             <Menu.Target>
-                                <Button variant="subtle" color="gray" leftSection={<Avatar color="grape" radius="xl" size="sm">{user.username.slice(0, 2).toUpperCase()}</Avatar>}>{user.username}</Button>
+                                <Button variant="subtle" color="gray" leftSection={<Avatar color="teal" radius="xl" size="sm">{user.username.slice(0, 2).toUpperCase()}</Avatar>}>
+                                    {user.username}
+                                </Button>
                             </Menu.Target>
                             <Menu.Dropdown>
                                 {user.role === 'admin' && (
@@ -154,43 +161,87 @@ function Dashboard() {
                     </Group>
                 </Container>
             </AppShell.Header>
+
             <AppShell.Main>
-                <Container size="xl" py="lg">
+                <Container size="lg" py="xl">
                     <Group justify="space-between" mb="xl">
-                        <div><Title order={2}>Overzicht</Title><Text c="dimmed">Welkom terug, {user.username}.</Text></div>
-                        <Button leftSection={<IconPlus size={20} />} color="grape" onClick={() => setModalOpen(true)}>Nieuwe Transactie</Button>
+                        <div>
+                            <Title order={2} fw={800}>Dashboard Overzicht</Title>
+                            <Text c="dimmed">Welkom terug, {user.username}.</Text>
+                        </div>
+                        <Button 
+                            leftSection={<IconPlus size={20} />} 
+                            color="teal" 
+                            radius="md"
+                            size="md"
+                            onClick={() => setModalOpen(true)}
+                        >
+                            Nieuwe Transactie
+                        </Button>
                     </Group>
+
                     <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="lg" mb="xl">
-                        <CardStat title="Huidig Saldo" amount={balance} icon={IconWallet} color="blue" isTotal />
+                        <CardStat title="Huidig Saldo" amount={balance} icon={IconWallet} color="teal" isTotal />
                         <CardStat title="Inkomsten" amount={totalIncome} icon={IconArrowUpRight} color="teal" />
                         <CardStat title="Uitgaven" amount={totalExpense} icon={IconArrowDownLeft} color="red" />
                     </SimpleGrid>
-                    <Paper shadow="sm" radius="md" p="md" withBorder>
-                        <Title order={4} mb="md">Recente Transacties</Title>
-                        {loading ? <Center py="xl"><Loader /></Center> : <Table verticalSpacing="sm"><Table.Thead><Table.Tr><Table.Th>Omschrijving</Table.Th><Table.Th>Bedrag</Table.Th><Table.Th>Datum</Table.Th><Table.Th></Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table>}
+
+                    <Paper shadow="xs" radius="lg" p="xl" withBorder>
+                        <Title order={4} mb="lg">Recente Transacties</Title>
+                        {loading ? (
+                            <Center py="xl"><Loader color="teal" /></Center>
+                        ) : (
+                            <Table verticalSpacing="md" horizontalSpacing="md">
+                                <Table.Thead>
+                                    <Table.Tr>
+                                        <Table.Th>Omschrijving</Table.Th>
+                                        <Table.Th>Bedrag</Table.Th>
+                                        <Table.Th>Datum</Table.Th>
+                                        <Table.Th></Table.Th>
+                                    </Table.Tr>
+                                </Table.Thead>
+                                <Table.Tbody>{rows}</Table.Tbody>
+                            </Table>
+                        )}
                     </Paper>
                 </Container>
             </AppShell.Main>
-            <Modal opened={modalOpen} onClose={() => setModalOpen(false)} title="Nieuwe Transactie" centered>
+
+            <Modal opened={modalOpen} onClose={() => setModalOpen(false)} title={<Text fw={700}>Nieuwe Transactie</Text>} centered radius="lg">
                 <Stack>
-                    <SegmentedControl value={formType} onChange={setFormType} data={[{ label: 'Uitgave', value: 'expense' }, { label: 'Inkomsten', value: 'income' }]} color={formType === 'income' ? 'teal' : 'red'} />
-                    <TextInput label="Omschrijving" required value={formValues.description} onChange={(e) => setFormValues({...formValues, description: e.currentTarget.value})} />
-                    <NumberInput label="Bedrag" prefix="€ " decimalScale={2} fixedDecimalScale required value={formValues.amount} onChange={(val) => setFormValues({...formValues, amount: val})} />
+                    <SegmentedControl 
+                        value={formType} 
+                        onChange={setFormType} 
+                        data={[{ label: 'Uitgave', value: 'expense' }, { label: 'Inkomsten', value: 'income' }]} 
+                        color={formType === 'income' ? 'teal' : 'red'} 
+                        fullWidth
+                    />
+                    <TextInput label="Omschrijving" placeholder="Bijv. Boodschappen" required value={formValues.description} onChange={(e) => setFormValues({...formValues, description: e.currentTarget.value})} />
+                    <NumberInput label="Bedrag" placeholder="0.00" prefix="€ " decimalScale={2} fixedDecimalScale required value={formValues.amount} onChange={(val) => setFormValues({...formValues, amount: val})} />
                     <Select label="Categorie" data={['Boodschappen', 'Huur', 'Salaris', 'Horeca', 'Vervoer', 'Abonnementen', 'Overig']} value={formValues.category} onChange={(val) => setFormValues({...formValues, category: val})} />
-                    <Button mt="md" color={formType === 'income' ? 'teal' : 'red'} onClick={handleSubmit}>Toevoegen</Button>
+                    <Button mt="md" color={formType === 'income' ? 'teal' : 'red'} radius="md" size="md" onClick={handleSubmit}>Toevoegen</Button>
                 </Stack>
             </Modal>
         </AppShell>
     );
 }
+
 function CardStat({ title, amount, icon: Icon, color, isTotal }) {
     return (
-        <Paper withBorder p="md" radius="md" shadow="sm">
+        <Paper withBorder p="xl" radius="lg" shadow="sm">
             <Group justify="space-between">
-                <div><Text size="xs" c="dimmed" fw={700} tt="uppercase">{title}</Text><Text fw={700} size="xl" mt="xs" c={isTotal ? (amount >= 0 ? 'dark' : 'red') : 'dark'}>€ {amount.toFixed(2)}</Text></div>
-                <ThemeIcon color={color} variant="light" size="xl" radius="md"><Icon style={{ width: rem(24), height: rem(24) }} /></ThemeIcon>
+                <div>
+                    <Text size="xs" c="dimmed" fw={700} tt="uppercase" ls={rem(1)}>{title}</Text>
+                    <Text fw={900} size="xl" mt="xs" c={isTotal ? (amount >= 0 ? 'teal' : 'red') : 'dark'}>
+                        € {amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </Text>
+                </div>
+                <ThemeIcon color={color} variant="light" size={48} radius="md">
+                    <Icon style={{ width: rem(26), height: rem(26) }} />
+                </ThemeIcon>
             </Group>
         </Paper>
     );
 }
+
 export default Dashboard;
