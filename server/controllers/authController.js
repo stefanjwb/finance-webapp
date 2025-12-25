@@ -67,7 +67,7 @@ const login = async (req, res) => {
         // 3. Maak een token (het digitale toegangspasje)
         const token = jwt.sign(
             { userId: user.id, role: user.role },
-            process.env.JWT_SECRET || 'geheim_sleutel', // Zorg dat dit in je .env staat!
+            process.env.JWT_SECRET || 'geheim_sleutel', // Staat in .env bestand
             { expiresIn: '7d' }     // Pasje is 7 dagen geldig
         );
 

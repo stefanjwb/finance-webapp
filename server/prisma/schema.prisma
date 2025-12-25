@@ -1,7 +1,10 @@
 // server/prisma/schema.prisma
 
+// server/prisma/schema.prisma
+
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
 }
 
 datasource db {
@@ -9,7 +12,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Het Gebruiker model (vertaald vanuit je Flask User class)
+// Het Gebruiker model
 model User {
   id            Int      @id @default(autoincrement())
   username      String   @unique
@@ -17,10 +20,6 @@ model User {
   password      String   // Dit is de gehashte versie
   role          String   @default("user") // 'user', 'organizer', 'admin'
   createdAt     DateTime @default(now())
-
-  // Relaties (komen later van pas)
-  // activities    Activity[] 
-  // signups       Signup[]
 }
 
 // Het Uitnodigingscode model (voor registratie)
