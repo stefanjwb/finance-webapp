@@ -199,7 +199,7 @@ function Register() {
     );
 }
 
-// Compacte Google Icon component (hergebruikt)
+// Compacte Google Icon component
 function GoogleIcon(props) {
     return (
         <svg {...props} viewBox="0 0 24 24" width="1rem" height="1rem" xmlns="http://www.w3.org/2000/svg">
