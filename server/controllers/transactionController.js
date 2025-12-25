@@ -3,6 +3,11 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const fs = require('fs');
 const csv = require('csv-parser');
+const { OpenAI } = require('openai');
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 /**
  * 1. Haal alle transacties op voor de ingelogde gebruiker
@@ -10,12 +15,10 @@ const csv = require('csv-parser');
 const getTransactions = async (req, res) => {
     try {
         const userId = req.user.userId;
-
         const transactions = await prisma.transaction.findMany({
             where: { userId: userId },
             orderBy: { date: 'desc' }
         });
-
         res.json(transactions);
     } catch (error) {
         console.error("Fout bij ophalen transacties:", error);
@@ -70,7 +73,6 @@ const deleteTransaction = async (req, res) => {
         }
 
         await prisma.transaction.delete({ where: { id: id } });
-
         res.json({ message: "Transactie succesvol verwijderd." });
     } catch (error) {
         console.error("Fout bij verwijderen transactie:", error);
@@ -79,7 +81,7 @@ const deleteTransaction = async (req, res) => {
 };
 
 /**
- * 4. Upload en verwerk een bank-CSV (ondersteunt zowel ; als ,)
+ * 4. Upload en verwerk een bank-CSV met AI-categorisering
  */
 const uploadCSV = async (req, res) => {
     const filePath = req.file?.path;
@@ -92,7 +94,7 @@ const uploadCSV = async (req, res) => {
     const results = [];
 
     try {
-        // STAP 1: Detecteer het scheidingsteken door de eerste regel te lezen
+        // STAP 1: Detecteer scheidingsteken
         const firstLine = await new Promise((resolve, reject) => {
             const stream = fs.createReadStream(filePath, { end: 99 });
             stream.on('data', (chunk) => {
@@ -104,7 +106,7 @@ const uploadCSV = async (req, res) => {
 
         const detectedSeparator = firstLine.includes(';') ? ';' : ',';
 
-        // STAP 2: Start het parsen met het gedetecteerde teken
+        // STAP 2: CSV parsen
         await new Promise((resolve, reject) => {
             fs.createReadStream(filePath)
                 .pipe(csv({ separator: detectedSeparator }))
@@ -113,48 +115,48 @@ const uploadCSV = async (req, res) => {
                 .on('end', () => resolve());
         });
 
-        const transactionsToCreate = results
-            .map(row => {
-                // Mapping op basis van de koppen in je CSV: Datum, Omschrijving, Bedrag
-                const description = String(row['Omschrijving'] || row['Naam_Omschrijving'] || 'Bank Import');
-                let rawAmount = row['Bedrag'] || row['Bedrag (EUR)'] || '0';
-                
-                const parsedAmount = parseFloat(String(rawAmount).replace(',', '.'));
-                
-                if (isNaN(parsedAmount) || parsedAmount === 0) return null;
+        // STAP 3: Transacties verwerken met AI (asynchroon)
+        const transactionsToCreate = await Promise.all(results.map(async (row) => {
+            // Mapping voor jouw Bunq CSV: Name, Description, Amount, Date
+            const name = row['Name'] || '';
+            const rowDesc = row['Description'] || '';
+            const description = `${name} ${rowDesc}`.trim() || 'Bank Import';
+            
+            const rawAmount = row['Amount'] || '0';
+            const parsedAmount = parseFloat(String(rawAmount).replace(',', '.'));
+            
+            if (isNaN(parsedAmount) || parsedAmount === 0) return null;
 
-                let txDate = new Date();
-                const rawDate = row['Datum'] || row['Transactiedatum'];
-                if (rawDate) {
-                    const parts = String(rawDate).split('-');
-                    if (parts.length === 3) {
-                        txDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-                    } else {
-                        txDate = new Date(rawDate);
-                    }
-                }
+            // Roep de AI aan voor elke transactie
+            const category = await autoCategorize(description);
 
-                return {
-                    amount: Math.abs(parsedAmount),
-                    type: parsedAmount >= 0 ? 'income' : 'expense',
-                    description: description.substring(0, 255),
-                    category: autoCategorize(description),
-                    date: isNaN(txDate.getTime()) ? new Date() : txDate,
-                    userId: userId
-                };
-            })
-            .filter(t => t !== null);
+            let txDate = new Date();
+            const rawDate = row['Date'] || row['Datum'];
+            if (rawDate) {
+                txDate = new Date(rawDate);
+            }
 
-        if (transactionsToCreate.length > 0) {
+            return {
+                amount: Math.abs(parsedAmount),
+                type: parsedAmount >= 0 ? 'income' : 'expense',
+                description: description.substring(0, 255),
+                category: category,
+                date: isNaN(txDate.getTime()) ? new Date() : txDate,
+                userId: userId
+            };
+        }));
+
+        const finalTransactions = transactionsToCreate.filter(t => t !== null);
+
+        if (finalTransactions.length > 0) {
             await prisma.transaction.createMany({
-                data: transactionsToCreate
+                data: finalTransactions
             });
         }
 
-        // BELANGRIJK: Stuur een simpele string terug in de message property
         res.json({ 
-            message: "Import succesvol: " + transactionsToCreate.length + " transacties toegevoegd.",
-            count: transactionsToCreate.length 
+            message: `Import succesvol: ${finalTransactions.length} transacties toegevoegd met AI-categorisering.`,
+            count: finalTransactions.length 
         });
 
     } catch (error) {
@@ -168,29 +170,33 @@ const uploadCSV = async (req, res) => {
 };
 
 /**
- * Hulpfunctie voor automatische categorisering
+ * Hulpfunctie voor AI-categorisering via OpenAI
  */
-const autoCategorize = (description) => {
+const autoCategorize = async (description) => {
     if (!description) return 'Overig';
-    const desc = String(description).toLowerCase();
 
-    const categories = {
-        'Boodschappen': ['ah', 'jumbo', 'albert heijn', 'dirk', 'lidl', 'aldi', 'supermarkt', 'plus', 'spar'],
-        'Huur': ['huur', 'hypotheek', 'wonen', 'vesteda', 'de key', 'vve'],
-        'Salaris': ['salaris', 'storting', 'loon', 'werkgever', 'uitbetaling'],
-        'Abonnementen': ['netflix', 'spotify', 'disney', 'icloud', 't-mobile', 'kpn', 'ziggo', 'vodafone', 'tele2'],
-        'Vervoer': ['ns', 'tanken', 'shell', 'bp', 'esso', 'parkeren', 'q-park', 'ov-chipkaart', 'trein'],
-        'Horeca': ['restaurant', 'cafe', 'thuisbezorgd', 'uber eats', 'bar', 'lunch', 'koffie'],
-        'Verzekering': ['verzekering', 'zorgverzekering', 'cz', 'zilveren kruis', 'interpolis'],
-    };
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-3.5-turbo", 
+            messages: [
+                {
+                    role: "system",
+                    content: "Je bent een financiële assistent die banktransacties categoriseert. Antwoord ALLEEN met de categorienaam uit deze lijst: Boodschappen, Huur, Salaris, Abonnementen, Vervoer, Horeca, Verzekering, Klussen, Overig."
+                },
+                {
+                    role: "user",
+                    content: `Categoriseer deze transactie: "${description}"`
+                }
+            ],
+            temperature: 0,
+            max_tokens: 15
+        });
 
-    for (const [category, keywords] of Object.entries(categories)) {
-        if (keywords.some(keyword => desc.includes(keyword))) {
-            return category;
-        }
+        return response.choices[0].message.content.trim();
+    } catch (error) {
+        console.error("AI Categorisatie fout:", error);
+        return 'Overig';
     }
-    
-    return 'Overig';
 };
 
 module.exports = { 
