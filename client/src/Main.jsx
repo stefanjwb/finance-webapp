@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom';
 import { MantineProvider, createTheme } from '@mantine/core';
 import '@mantine/core/styles.css';
-import App from './app.jsx' 
+import App from './App.jsx' 
 import './App.css'
 
 const theme = createTheme({
