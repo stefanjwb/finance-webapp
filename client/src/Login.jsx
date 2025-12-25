@@ -61,7 +61,7 @@ function Login() {
             if (data.user && data.user.role === 'admin') {
                 navigate('/admin'); // Admin gaat naar Admin Panel
             } else {
-                navigate('/');      // Gewone gebruiker gaat naar Dashboard
+                navigate('/dashboard');      // Gewone gebruiker gaat naar Dashboard
             }
 
         } catch (err) {
@@ -83,7 +83,6 @@ function Login() {
                 visibleFrom="md" 
                 style={{ 
                     flex: 1,
-                    backgroundImage: 'url("/overdruiven_inlog_afbeelding.png")',
                     backgroundSize: 'cover',
                     backgroundPosition: 'top center',
                     backgroundColor: '#2d0a31'
