@@ -46,36 +46,43 @@ const register = async (req, res) => {
 // --- INLOGGEN ---
 const login = async (req, res) => {
     try {
+        // We noemen het veld 'username' omdat de frontend dat stuurt,
+        // maar de gebruiker kan hier ook een e-mail invullen.
         const { username, password } = req.body;
 
-        // 1. Zoek de gebruiker
-        const user = await prisma.user.findUnique({
-            where: { username }
+        // 1. Zoek de gebruiker op gebruikersnaam OF e-mail
+        const user = await prisma.user.findFirst({
+            where: {
+                OR: [
+                    { username: username },
+                    { email: username } // Zoek de input ook in de email kolom
+                ]
+            }
         });
 
         if (!user) {
             return res.status(401).json({ error: "Ongeldige inloggegevens." });
         }
 
-        // 2. Controleer het wachtwoord (vergelijk ingevoerd wachtwoord met de hash)
+        // 2. Controleer het wachtwoord
         const isMatch = await bcrypt.compare(password, user.password);
 
         if (!isMatch) {
             return res.status(401).json({ error: "Ongeldige inloggegevens." });
         }
 
-        // 3. Maak een token (het digitale toegangspasje)
+        // 3. Maak een token
         const token = jwt.sign(
             { userId: user.id, role: user.role },
-            process.env.JWT_SECRET || 'geheim_sleutel', // Staat in .env bestand
-            { expiresIn: '7d' }     // Pasje is 7 dagen geldig
+            process.env.JWT_SECRET || 'geheim_sleutel',
+            { expiresIn: '7d' }
         );
 
-        // Stuur token en info terug
         res.json({ 
             token, 
             user: {
                 username: user.username,
+                email: user.email, // Handig om ook terug te sturen
                 role: user.role
             }
         });
