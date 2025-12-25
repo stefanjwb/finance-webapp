@@ -10,6 +10,69 @@ const openai = new OpenAI({
 });
 
 /**
+ * Hulpfunctie voor AI-categorisering met verbeterde prompt en robuuste matching
+ */
+const autoCategorize = async (description) => {
+    if (!description) return 'Onvoorzien';
+
+    const categoriesList = [
+        "Hypotheek of huur", "Energie (gas/licht)", "Water", "Zorgverzekering", 
+        "Overige verzekeringen (inboedel, auto, etc.)", "Internet en TV", 
+        "Mobiele abonnementen", "Gemeentelijke en waterschapsbelastingen", 
+        "Boodschappen", "Verzorgingsproducten (drogisterij)", 
+        "Brandstof en parkeerkosten", "Openbaar vervoer", "Onderhoud auto", 
+        "Huishoudelijke artikelen", "Restaurants en cafébezoek", 
+        "Afhaalmaaltijden en bezorging", "Entertainment (bioscoop, uitstapjes)", 
+        "Streamingdiensten en tijdschriften (Netflix, Spotify, etc.)", 
+        "Sportschool", "Shoppen (kleding, elektronica, hobby's)", 
+        "Uiterlijke verzorging (kapper)", "Sparen en beleggen", 
+        "Aflossing schulden of leningen", "Bankkosten", "Onvoorzien"
+    ];
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini", 
+            messages: [
+                {
+                    role: "system",
+                    content: `Je bent een expert in Nederlandse privéprivéfinanciën. 
+                    Categoriseer de transactie in EXACT één van deze categorieën: ${categoriesList.join(", ")}.
+
+                    RICHTLIJNEN VOOR MATCHING:
+                    - "Ravellaan" of "Huur" -> Hypotheek of huur
+                    - "Hornbach", "DIY", "Gamma", "Klus" -> Huishoudelijke artikelen
+                    - "Grab", "Bolt", "NS", "Gojek", "Taxi" -> Openbaar vervoer
+                    - "Mart", "Supermarkt", "AH", "Jumbo", "Boodschappen" -> Boodschappen
+                    - "onvz", "zilveren kruis", "zorg" -> Zorgverzekering
+                    - "Tikkie" met eten/drinken omschrijving -> Restaurants en cafébezoek
+
+                    ANTWOORD-REGELS:
+                    1. Antwoord ALLEEN met de categorienaam.
+                    2. Geen extra tekst, geen uitleg, geen aanhalingstekens.`
+                },
+                {
+                    role: "user",
+                    content: `Categoriseer deze bankomschrijving: "${description}"`
+                }
+            ],
+            temperature: 0,
+            max_tokens: 30
+        });
+
+        // Verwijder ongewenste leestekens voor een schone match
+        let result = response.choices[0].message.content.trim().replace(/[".]/g, "");
+        
+        // Zoek een exacte match in de lijst (case-insensitive)
+        const matchedCategory = categoriesList.find(c => c.toLowerCase() === result.toLowerCase());
+        
+        return matchedCategory || 'Onvoorzien';
+    } catch (error) {
+        console.error("AI Fout bij categoriseren:", error);
+        return 'Onvoorzien';
+    }
+};
+
+/**
  * 1. Haal alle transacties op voor de ingelogde gebruiker
  */
 const getTransactions = async (req, res) => {
@@ -42,7 +105,7 @@ const createTransaction = async (req, res) => {
             data: {
                 amount: Math.abs(parseFloat(amount)),
                 type,
-                category: String(category || 'Overig'), 
+                category: String(category || 'Onvoorzien'), 
                 description: String(description),
                 date: date ? new Date(date) : new Date(),
                 userId: userId
@@ -81,20 +144,42 @@ const deleteTransaction = async (req, res) => {
 };
 
 /**
- * 4. Upload en verwerk een bank-CSV met AI-categorisering
+ * 3.1 Bulk-verwijderen van transacties
+ */
+const deleteMultipleTransactions = async (req, res) => {
+    try {
+        const { ids } = req.body;
+        const userId = req.user.userId;
+
+        if (!ids || !Array.isArray(ids)) {
+            return res.status(400).json({ error: "Geen geldige ID's opgegeven." });
+        }
+
+        await prisma.transaction.deleteMany({
+            where: {
+                id: { in: ids },
+                userId: userId
+            }
+        });
+
+        res.json({ message: `${ids.length} transacties succesvol verwijderd.` });
+    } catch (error) {
+        console.error("Bulk delete error:", error);
+        res.status(500).json({ error: "Kon transacties niet verwijderen." });
+    }
+};
+
+/**
+ * 4. Upload en verwerk CSV met AI-categorisering
  */
 const uploadCSV = async (req, res) => {
     const filePath = req.file?.path;
-
-    if (!req.file) {
-        return res.status(400).json({ error: "Geen bestand geüpload." });
-    }
+    if (!req.file) return res.status(400).json({ error: "Geen bestand geüpload." });
 
     const userId = req.user.userId;
     const results = [];
 
     try {
-        // STAP 1: Detecteer scheidingsteken
         const firstLine = await new Promise((resolve, reject) => {
             const stream = fs.createReadStream(filePath, { end: 99 });
             stream.on('data', (chunk) => {
@@ -103,10 +188,8 @@ const uploadCSV = async (req, res) => {
             });
             stream.on('error', (err) => reject(err));
         });
-
         const detectedSeparator = firstLine.includes(';') ? ';' : ',';
 
-        // STAP 2: CSV parsen
         await new Promise((resolve, reject) => {
             fs.createReadStream(filePath)
                 .pipe(csv({ separator: detectedSeparator }))
@@ -115,53 +198,44 @@ const uploadCSV = async (req, res) => {
                 .on('end', () => resolve());
         });
 
-        // STAP 3: Transacties verwerken met AI (asynchroon)
         const transactionsToCreate = await Promise.all(results.map(async (row) => {
-            // Mapping voor jouw Bunq CSV: Name, Description, Amount, Date
+            // Bunq specifieke mapping
             const name = row['Name'] || '';
             const rowDesc = row['Description'] || '';
             const description = `${name} ${rowDesc}`.trim() || 'Bank Import';
             
-            const rawAmount = row['Amount'] || '0';
+            const rawAmount = row['Amount'] || row['Bedrag'] || '0';
             const parsedAmount = parseFloat(String(rawAmount).replace(',', '.'));
             
             if (isNaN(parsedAmount) || parsedAmount === 0) return null;
 
-            // Roep de AI aan voor elke transactie
+            // Wacht op AI categorisering
             const category = await autoCategorize(description);
-
-            let txDate = new Date();
-            const rawDate = row['Date'] || row['Datum'];
-            if (rawDate) {
-                txDate = new Date(rawDate);
-            }
 
             return {
                 amount: Math.abs(parsedAmount),
                 type: parsedAmount >= 0 ? 'income' : 'expense',
                 description: description.substring(0, 255),
                 category: category,
-                date: isNaN(txDate.getTime()) ? new Date() : txDate,
+                date: new Date(row['Date'] || row['Datum'] || new Date()),
                 userId: userId
             };
         }));
 
-        const finalTransactions = transactionsToCreate.filter(t => t !== null);
-
-        if (finalTransactions.length > 0) {
-            await prisma.transaction.createMany({
-                data: finalTransactions
-            });
+        const finalData = transactionsToCreate.filter(t => t !== null);
+        
+        if (finalData.length > 0) {
+            await prisma.transaction.createMany({ data: finalData });
         }
 
         res.json({ 
-            message: `Import succesvol: ${finalTransactions.length} transacties toegevoegd met AI-categorisering.`,
-            count: finalTransactions.length 
+            message: `Import succesvol: ${finalData.length} transacties toegevoegd.`,
+            count: finalData.length 
         });
 
     } catch (error) {
         console.error("Fout bij CSV verwerking:", error);
-        res.status(500).json({ error: "Kon CSV bestand niet volledig verwerken." });
+        res.status(500).json({ error: "Fout bij verwerken van CSV." });
     } finally {
         if (filePath && fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
@@ -169,39 +243,10 @@ const uploadCSV = async (req, res) => {
     }
 };
 
-/**
- * Hulpfunctie voor AI-categorisering via OpenAI
- */
-const autoCategorize = async (description) => {
-    if (!description) return 'Overig';
-
-    try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-3.5-turbo", 
-            messages: [
-                {
-                    role: "system",
-                    content: "Je bent een financiële assistent die banktransacties categoriseert. Antwoord ALLEEN met de categorienaam uit deze lijst: Boodschappen, Huur, Salaris, Abonnementen, Vervoer, Horeca, Verzekering, Klussen, Overig."
-                },
-                {
-                    role: "user",
-                    content: `Categoriseer deze transactie: "${description}"`
-                }
-            ],
-            temperature: 0,
-            max_tokens: 15
-        });
-
-        return response.choices[0].message.content.trim();
-    } catch (error) {
-        console.error("AI Categorisatie fout:", error);
-        return 'Overig';
-    }
-};
-
 module.exports = { 
     getTransactions, 
     createTransaction, 
     deleteTransaction, 
+    deleteMultipleTransactions,
     uploadCSV 
 };

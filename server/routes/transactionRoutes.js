@@ -13,6 +13,7 @@ router.use(authenticateToken);
 router.get('/', transactionController.getTransactions);
 router.post('/', transactionController.createTransaction);
 router.delete('/:id', transactionController.deleteTransaction);
+router.post('/bulk-delete', transactionController.deleteMultipleTransactions);
 
 router.post('/upload', upload.single('file'), transactionController.uploadCSV);
 

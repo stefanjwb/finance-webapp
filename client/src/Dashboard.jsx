@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { 
     AppShell, Container, Title, Text, Group, Paper, Button, SimpleGrid, 
     ThemeIcon, Table, ActionIcon, Avatar, Menu, rem, Modal, TextInput, 
-    NumberInput, Select, Stack, SegmentedControl, Center, Loader, FileButton 
+    NumberInput, Select, Stack, SegmentedControl, Center, Loader, FileButton,
+    Checkbox // Toegevoegd voor selectie
 } from '@mantine/core';
 import { 
     IconWallet, IconArrowUpRight, IconArrowDownLeft, IconPlus, IconLogout, 
@@ -19,8 +20,11 @@ function Dashboard() {
     const [user, setUser] = useState(null);
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [processing, setProcessing] = useState(false); // Voor feedback tijdens uploaden
+    const [processing, setProcessing] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
+    
+    // Selectie State
+    const [selectedIds, setSelectedIds] = useState([]);
     
     // Formulier States
     const [formType, setFormType] = useState('expense');
@@ -28,7 +32,6 @@ function Dashboard() {
 
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
-    // Helper om transacties op te halen
     const fetchTransactions = useCallback(async (token) => {
         try {
             const response = await fetch(`${API_URL}/api/transactions`, {
@@ -45,7 +48,6 @@ function Dashboard() {
         }
     }, [API_URL]);
 
-    // Initialisatie bij laden van pagina
     useEffect(() => {
         const token = localStorage.getItem('token');
         const userData = localStorage.getItem('user');
@@ -64,10 +66,32 @@ function Dashboard() {
         }
     }, [navigate, fetchTransactions]);
 
-    // Handler voor CSV-bestanden
+    // Bulk Delete Handler
+    const handleBulkDelete = async () => {
+        const token = localStorage.getItem('token');
+        if (!window.confirm(`Weet je zeker dat je ${selectedIds.length} transacties wilt verwijderen?`)) return;
+    
+        try {
+            const response = await fetch(`${API_URL}/api/transactions/bulk-delete`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify({ ids: selectedIds })
+            });
+    
+            if (response.ok) {
+                setTransactions(prev => prev.filter(t => !selectedIds.includes(t.id)));
+                setSelectedIds([]); // Reset selectie
+            }
+        } catch (error) {
+            console.error("Bulk delete error:", error);
+        }
+    };
+
     const handleCSVUpload = async (file) => {
         if (!file) return;
-        
         const token = localStorage.getItem('token');
         const formData = new FormData();
         formData.append('file', file);
@@ -79,11 +103,8 @@ function Dashboard() {
                 headers: { 'Authorization': `Bearer ${token}` },
                 body: formData
             });
-
             const result = await response.json();
-
             if (response.ok) {
-                // Toon specifiek result.message om "[object Object]" melding te voorkomen
                 alert(result.message || "Import geslaagd!");
                 fetchTransactions(token);
             } else {
@@ -97,7 +118,6 @@ function Dashboard() {
         }
     };
 
-    // Handler voor handmatige transacties
     const handleManualSubmit = async () => {
         const token = localStorage.getItem('token');
         if (!formValues.amount || !formValues.description) return;
@@ -127,7 +147,6 @@ function Dashboard() {
         }
     };
 
-    // Handler voor verwijderen
     const handleDelete = async (id) => {
         const token = localStorage.getItem('token');
         if (!window.confirm("Weet je zeker dat je deze transactie wilt verwijderen?")) return;
@@ -150,7 +169,6 @@ function Dashboard() {
         navigate('/login');
     };
 
-    // Statistische berekeningen
     const totalIncome = transactions.filter(t => t.type === 'income').reduce((acc, curr) => acc + curr.amount, 0);
     const totalExpense = transactions.filter(t => t.type === 'expense').reduce((acc, curr) => acc + curr.amount, 0);
     const balance = totalIncome - totalExpense;
@@ -231,13 +249,34 @@ function Dashboard() {
                     </SimpleGrid>
 
                     <Paper shadow="xs" radius="lg" p="xl" withBorder>
-                        <Title order={4} mb="lg">Recente Transacties</Title>
+                        <Group justify="space-between" mb="lg">
+                            <Title order={4}>Recente Transacties</Title>
+                            {selectedIds.length > 0 && (
+                                <Button 
+                                    color="red" 
+                                    variant="light" 
+                                    size="xs"
+                                    leftSection={<IconTrash size={14} />} 
+                                    onClick={handleBulkDelete}
+                                >
+                                    Verwijder geselecteerde ({selectedIds.length})
+                                </Button>
+                            )}
+                        </Group>
+
                         {loading ? (
                             <Center py="xl"><Loader color="teal" /></Center>
                         ) : (
                             <Table verticalSpacing="md" horizontalSpacing="md" highlightOnHover>
                                 <Table.Thead>
                                     <Table.Tr>
+                                        <Table.Th style={{ width: rem(40) }}>
+                                            <Checkbox 
+                                                checked={selectedIds.length === transactions.length && transactions.length > 0}
+                                                indeterminate={selectedIds.length > 0 && selectedIds.length < transactions.length}
+                                                onChange={(e) => setSelectedIds(e.currentTarget.checked ? transactions.map(t => t.id) : [])}
+                                            />
+                                        </Table.Th>
                                         <Table.Th>Omschrijving</Table.Th>
                                         <Table.Th>Bedrag</Table.Th>
                                         <Table.Th>Datum</Table.Th>
@@ -246,7 +285,17 @@ function Dashboard() {
                                 </Table.Thead>
                                 <Table.Tbody>
                                     {transactions.map((t) => (
-                                        <Table.Tr key={t.id}>
+                                        <Table.Tr key={t.id} style={{ backgroundColor: selectedIds.includes(t.id) ? 'var(--mantine-color-teal-0)' : undefined }}>
+                                            <Table.Td>
+                                                <Checkbox 
+                                                    checked={selectedIds.includes(t.id)}
+                                                    onChange={(e) => {
+                                                        setSelectedIds(prev => 
+                                                            e.currentTarget.checked ? [...prev, t.id] : prev.filter(id => id !== t.id)
+                                                        );
+                                                    }}
+                                                />
+                                            </Table.Td>
                                             <Table.Td>
                                                 <Group gap="sm">
                                                     <ThemeIcon color={t.type === 'income' ? 'teal' : 'red'} variant="light" size="md" radius="xl">
