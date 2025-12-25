@@ -72,7 +72,6 @@ function Register() {
                 visibleFrom="md" 
                 style={{ 
                     flex: 1,
-                    backgroundImage: 'url("/overdruiven_inlog_afbeelding.png")',
                     backgroundSize: 'cover',
                     backgroundPosition: 'top center',
                     backgroundColor: '#2d0a31'
@@ -98,7 +97,7 @@ function Register() {
                             Lid worden
                         </Title>
                         <Text c="dimmed" size="sm" fw={500}>
-                            Maak een account aan bij Chateau Overdruiven
+                            Maak een account aan bij Belio
                         </Text>
                     </Stack>
         

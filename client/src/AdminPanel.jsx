@@ -190,7 +190,7 @@ function AdminPanel() {
             <Group justify="space-between" mb="xl">
                 <div>
                     <Title order={2} fw={800}>Gebruikersbeheer</Title>
-                    <Text c="dimmed">Beheer toegang en accounts van Overdruiven</Text>
+                    <Text c="dimmed">Beheer toegang en accounts van Belio</Text>
                 </div>
             </Group>
 

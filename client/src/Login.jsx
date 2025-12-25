@@ -105,7 +105,7 @@ function Login() {
                             Welkom Terug
                         </Title>
                         <Text c="dimmed" size="sm">
-                            Log in bij Chateau Overdruiven
+                            Log in bij Belio
                         </Text>
                     </Stack>
         

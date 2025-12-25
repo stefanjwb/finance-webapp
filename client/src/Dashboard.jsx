@@ -134,7 +134,7 @@ function Dashboard() {
                     <Group justify="space-between" h="100%">
                         <Group>
                             <ThemeIcon size="lg" radius="md" color="grape" variant="filled"><IconWallet size={20} /></ThemeIcon>
-                            <Title order={3} fw={800}>Overdruiven Finance</Title>
+                            <Title order={3} fw={800}>Belio Finance</Title>
                         </Group>
                         <Menu shadow="md" width={200}>
                             <Menu.Target>

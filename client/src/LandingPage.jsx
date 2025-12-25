@@ -12,7 +12,7 @@ function LandingPage() {
       <div style={{ background: '#f8f9fa', padding: '100px 0', textAlign: 'center' }}>
         <Container size="md">
           <Title order={1} size="h1" fw={900} style={{ fontSize: rem(48), marginBottom: rem(20) }}>
-            Beheer je financiën met <Text span c="grape" inherit>Overdruiven</Text>
+            Beheer je financiën met <Text span c="grape" inherit>Belio</Text>
           </Title>
           
           <Text c="dimmed" size="xl" mb="xl" maw={600} mx="auto">
@@ -33,7 +33,7 @@ function LandingPage() {
 
       {/* --- FEATURES SECTIE --- */}
       <Container size="lg" py="xl" mt="xl">
-        <Title order={2} ta="center" mb="xl">Waarom Overdruiven?</Title>
+        <Title order={2} ta="center" mb="xl">Waarom Belio?</Title>
         
         <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xl">
           <FeatureCard 
