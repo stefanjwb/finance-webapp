@@ -1,8 +1,10 @@
 // server/routes/transactionRoutes.js
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const transactionController = require('../controllers/transactionController');
 const authenticateToken = require('../middleware/authMiddleware');
+
 const upload = multer({ dest: 'uploads/' });
 
 // Alle routes in dit bestand zijn beveiligd!
