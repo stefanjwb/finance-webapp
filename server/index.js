@@ -5,7 +5,8 @@ require('dotenv').config();
 
 // Routes importeren
 const authRoutes = require('./routes/authRoutes');
-const userRoutes = require('./routes/userRoutes'); // <--- NIEUW: Importeer de routes
+const userRoutes = require('./routes/userRoutes'); 
+const transactionRoutes = require('./routes/transactionRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -23,6 +24,7 @@ app.use(morgan('dev'));       // Log elk verzoek in de terminal (voor debugging)
 // Koppel specifieke routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/transactions', transactionRoutes);
 
 // Health Check (om te testen of server leeft)
 app.get('/', (req, res) => {

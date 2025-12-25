@@ -1,38 +1,42 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { 
-    TextInput, 
-    PasswordInput, 
-    Anchor, 
-    Title, 
-    Text, 
-    Container, 
-    Group, 
+import {
+    TextInput,
+    PasswordInput,
+    Anchor,
+    Title,
+    Text,
+    Container,
+    Group,
     Button,
     Box,
     Stack,
-    Divider
+    Divider,
+    Alert,
+    Paper
 } from '@mantine/core';
-import { IconAt, IconLock, IconBrandFacebook } from '@tabler/icons-react';
+import { IconAt, IconLock, IconBrandFacebook, IconAlertCircle } from '@tabler/icons-react';
 
 // Constanten
 const BRAND_COLOR = '#710081';
 
 function Login() {
+    // State management
     const [formData, setFormData] = useState({ username: '', password: '' });
     const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false); 
+    
     const navigate = useNavigate();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
+        setLoading(true);
 
         try {
-            // BELANGRIJK: Gebruik de ingestelde variabele of fallback naar 5001 (voor Mac support)
+            // API URL bepalen
             const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
             
-            console.log("Inloggen via:", API_URL); // Voor debugging
-
             const response = await fetch(`${API_URL}/api/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -45,20 +49,30 @@ function Login() {
                 throw new Error(data.error || 'Inloggen mislukt. Controleer je gegevens.');
             }
 
-            // Token en gebruikersinfo opslaan in de browser
+            // Opslaan in local storage
             localStorage.setItem('token', data.token);
             if (data.user) {
                 localStorage.setItem('user', JSON.stringify(data.user));
             }
 
-            // Doorsturen naar de hoofdpagina (Dashboard)
-            console.log("Login succesvol, doorsturen...");
-            navigate('/'); 
+            console.log("Login succesvol als:", data.user.role);
+
+            // Check de rol en stuur door naar de juiste pagina
+            if (data.user && data.user.role === 'admin') {
+                navigate('/admin'); // Admin gaat naar Admin Panel
+            } else {
+                navigate('/');      // Gewone gebruiker gaat naar Dashboard
+            }
 
         } catch (err) {
             console.error(err);
             setError(err.message);
+            setLoading(false); 
         }
+    };
+
+    const handleChange = (field, value) => {
+        setFormData((prev) => ({ ...prev, [field]: value }));
     };
 
     return (
@@ -69,10 +83,8 @@ function Login() {
                 visibleFrom="md" 
                 style={{ 
                     flex: 1,
-                    // LET OP: Geen '/public' in de url zetten, gewoon direct de bestandsnaam!
                     backgroundImage: 'url("/overdruiven_inlog_afbeelding.png")',
                     backgroundSize: 'cover',
-                    // Hier zorgen we dat de bovenkant van de foto zichtbaar blijft:
                     backgroundPosition: 'top center',
                     backgroundColor: '#2d0a31'
                 }}
@@ -85,40 +97,48 @@ function Login() {
                 flexDirection: 'column', 
                 justifyContent: 'center', 
                 backgroundColor: 'white',
-                padding: '40px',
-                maxWidth: '600px'
+                padding: '40px'
             }}>
                 <Container size="xs" w="100%">
                     
-                    <Title order={1} fw={900} c="dark" 
-                    style={{ fontFamily: 'Inter, sans-serif', fontSize: '2rem' }}>
-                        Welkom Terug
-                    </Title>
-                    <Text c="dimmed" size="sm" mt={5} mb={30}>
-                        Log in bij Chateau Overdruiven
-                    </Text>
+                    <Stack align="center" mb={30}>
+                        <Title order={1} fw={900} c="dark" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            Welkom Terug
+                        </Title>
+                        <Text c="dimmed" size="sm">
+                            Log in bij Chateau Overdruiven
+                        </Text>
+                    </Stack>
         
-                    {error && <Text c="red" size="sm" mb="md">{error}</Text>}
+                    {error && (
+                        <Alert icon={<IconAlertCircle size={16} />} title="Foutmelding" color="red" variant="light" mb="lg">
+                            {error}
+                        </Alert>
+                    )}
         
                     <form onSubmit={handleSubmit}>
                         <Stack gap="lg">
                             <TextInput 
                                 label="Gebruikersnaam"
                                 placeholder="Je naam of e-mail" 
-                                size="md" required
-                                leftSection={<IconAt size={18} stroke={1.5} color={'#ced4da'} />}
+                                size="md" 
+                                required
+                                disabled={loading}
+                                leftSection={<IconAt size={18} stroke={1.5} color="#ced4da" />}
                                 value={formData.username}
-                                onChange={(e) => setFormData({...formData, username: e.currentTarget.value})}
+                                onChange={(e) => handleChange('username', e.currentTarget.value)}
                             />
                             
                             <Stack gap={5}>
                                 <PasswordInput 
                                     label="Wachtwoord"
                                     placeholder="Je wachtwoord" 
-                                    size="md" required
-                                    leftSection={<IconLock size={18} stroke={1.5} color={'#ced4da'} />}
+                                    size="md" 
+                                    required
+                                    disabled={loading}
+                                    leftSection={<IconLock size={18} stroke={1.5} color="#ced4da" />}
                                     value={formData.password}
-                                    onChange={(e) => setFormData({...formData, password: e.currentTarget.value})}
+                                    onChange={(e) => handleChange('password', e.currentTarget.value)}
                                 />
                                 <Group justify="flex-end">
                                     <Anchor component="button" type="button" size="xs" c="dimmed" fw={500}>
@@ -128,9 +148,19 @@ function Login() {
                             </Stack>
                             
                             <Button 
-                                fullWidth mt="sm" size="md" type="submit"
+                                fullWidth 
+                                mt="sm" 
+                                size="md" 
+                                type="submit"
+                                loading={loading}
                                 color={BRAND_COLOR}
-                                styles={{ root: { backgroundColor: BRAND_COLOR, transition: 'all 0.2s', '&:hover': { backgroundColor: '#5a0066' } } }}
+                                styles={{ 
+                                    root: { 
+                                        backgroundColor: BRAND_COLOR, 
+                                        transition: 'background-color 0.2s', 
+                                        '&:hover': { backgroundColor: '#5a0066' } 
+                                    } 
+                                }}
                             >
                                 Login
                             </Button>
@@ -139,10 +169,11 @@ function Login() {
 
                     <Divider label="Of ga verder met" labelPosition="center" my="lg" />
 
-                    <Group grow mb="md" mt="md">
+                    <Group grow mb="md">
                         <Button 
                             leftSection={<GoogleIcon />} 
                             variant="default" color="gray" radius="md"
+                            disabled={loading}
                             onClick={() => alert("Google nog niet gekoppeld")}
                         >
                             Google
@@ -152,6 +183,7 @@ function Login() {
                             leftSection={<IconBrandFacebook size={18} />} 
                             radius="md"
                             bg="#4267B2" c="white"
+                            disabled={loading}
                             onClick={() => alert("Facebook nog niet gekoppeld")}
                             styles={{ root: { '&:hover': { backgroundColor: '#365899' } } }}
                         >
@@ -171,7 +203,7 @@ function Login() {
     );
 }
 
-// Google Icoon Component (om de hoofdcode schoon te houden)
+// Compacte Google Icon component
 function GoogleIcon(props) {
     return (
         <svg {...props} viewBox="0 0 24 24" width="1rem" height="1rem" xmlns="http://www.w3.org/2000/svg">

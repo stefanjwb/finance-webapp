@@ -11,28 +11,31 @@ import {
     Button, 
     Box, 
     Stack, 
-    Divider 
+    Divider,
+    Alert 
 } from '@mantine/core';
-import { IconAt, IconLock, IconBrandFacebook, IconUser } from '@tabler/icons-react';
+import { IconAt, IconLock, IconBrandFacebook, IconUser, IconAlertCircle } from '@tabler/icons-react';
 
 // Constanten
 const BRAND_COLOR = '#710081';
 
 function Register() {
+    // State management
     const [formData, setFormData] = useState({ username: '', email: '', password: '' });
     const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false); // Nieuw: laadstatus
+    
     const navigate = useNavigate();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
+        setLoading(true);
 
         try {
-            // BELANGRIJK: Gebruik de ingestelde variabele of fallback naar 5001 (voor Mac support)
+            // API URL bepalen
             const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
             
-            console.log("Registreren via:", API_URL); // Voor debugging in je browser console
-
             const response = await fetch(`${API_URL}/api/auth/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -42,18 +45,23 @@ function Register() {
             const data = await response.json();
 
             if (!response.ok) {
-                // Toon de foutmelding van de server (bijv. "Email al in gebruik")
-                throw new Error(data.error || 'Registratie mislukt');
+                throw new Error(data.error || 'Registratie mislukt. Probeer het opnieuw.');
             }
 
-            // Als het gelukt is:
+            // Succes scenario
+            // Je kunt hier eventueel een 'Success Notification' tonen in plaats van alert
             alert('Account succesvol aangemaakt! Je wordt nu doorgestuurd naar de inlogpagina.');
             navigate('/login'); 
 
         } catch (err) {
             console.error(err);
             setError(err.message);
+            setLoading(false); // Stop laden alleen bij fout
         }
+    };
+
+    const handleChange = (field, value) => {
+        setFormData((prev) => ({ ...prev, [field]: value }));
     };
 
     return (
@@ -78,68 +86,77 @@ function Register() {
                 flexDirection: 'column', 
                 justifyContent: 'center', 
                 backgroundColor: 'white',
-                padding: '40px',
-                maxWidth: '600px'
+                padding: '40px'
             }}>
                 <Container size="xs" w="100%">
                     
-                    <Title 
-                        order={1} 
-                        fw={900} 
-                        c="dark" 
-                        style={{ 
-                            fontFamily: 'Inter, sans-serif', 
-                            fontSize: '2rem',
-                            letterSpacing: '-1px'
-                        }}
-                    >
-                        Lid worden
-                    </Title>
-                    
-                    <Text c="dimmed" size="sm" mt={5} mb={30} fw={500}>
-                        Maak een account aan bij Chateau Overdruiven
-                    </Text>
+                    <Stack align="center" mb={30}>
+                        <Title 
+                            order={1} fw={900} c="dark" 
+                            style={{ fontFamily: 'Inter, sans-serif', fontSize: '2rem' }}
+                        >
+                            Lid worden
+                        </Title>
+                        <Text c="dimmed" size="sm" fw={500}>
+                            Maak een account aan bij Chateau Overdruiven
+                        </Text>
+                    </Stack>
         
-                    {error && <Text c="red" size="sm" mb="md">{error}</Text>}
+                    {/* Foutmelding component */}
+                    {error && (
+                        <Alert icon={<IconAlertCircle size={16} />} title="Foutmelding" color="red" variant="light" mb="lg">
+                            {error}
+                        </Alert>
+                    )}
         
                     <form onSubmit={handleSubmit}>
                         <Stack gap="md">
-                            {/* Gebruikersnaam Veld */}
+                            {/* Gebruikersnaam */}
                             <TextInput 
                                 label="Gebruikersnaam"
                                 placeholder="Kies een gebruikersnaam" 
                                 size="md" required
-                                leftSection={<IconUser size={18} stroke={1.5} color={'#ced4da'} />}
+                                disabled={loading}
+                                leftSection={<IconUser size={18} stroke={1.5} color="#ced4da" />}
                                 value={formData.username}
-                                onChange={(e) => setFormData({...formData, username: e.currentTarget.value})}
+                                onChange={(e) => handleChange('username', e.currentTarget.value)}
                             />
 
-                            {/* E-mail Veld */}
+                            {/* E-mail */}
                             <TextInput 
                                 label="E-mailadres"
                                 placeholder="jouw@email.nl" 
                                 size="md" required
                                 mt="xs"
-                                leftSection={<IconAt size={18} stroke={1.5} color={'#ced4da'} />}
+                                disabled={loading}
+                                leftSection={<IconAt size={18} stroke={1.5} color="#ced4da" />}
                                 value={formData.email}
-                                onChange={(e) => setFormData({...formData, email: e.currentTarget.value})}
+                                onChange={(e) => handleChange('email', e.currentTarget.value)}
                             />
                             
-                            {/* Wachtwoord Veld */}
+                            {/* Wachtwoord */}
                             <PasswordInput 
                                 label="Wachtwoord"
                                 placeholder="Kies een sterk wachtwoord" 
                                 size="md" required
                                 mt="xs"
-                                leftSection={<IconLock size={18} stroke={1.5} color={'#ced4da'} />}
+                                disabled={loading}
+                                leftSection={<IconLock size={18} stroke={1.5} color="#ced4da" />}
                                 value={formData.password}
-                                onChange={(e) => setFormData({...formData, password: e.currentTarget.value})}
+                                onChange={(e) => handleChange('password', e.currentTarget.value)}
                             />
                             
                             <Button 
                                 fullWidth mt="xl" size="md" type="submit"
+                                loading={loading}
                                 color={BRAND_COLOR}
-                                styles={{ root: { backgroundColor: BRAND_COLOR, transition: 'all 0.2s', '&:hover': { backgroundColor: '#5a0066' } } }}
+                                styles={{ 
+                                    root: { 
+                                        backgroundColor: BRAND_COLOR, 
+                                        transition: 'background-color 0.2s', 
+                                        '&:hover': { backgroundColor: '#5a0066' } 
+                                    } 
+                                }}
                             >
                                 Registreren
                             </Button>
@@ -148,10 +165,11 @@ function Register() {
 
                     <Divider label="Of registreer met" labelPosition="center" my="lg" />
 
-                    <Group grow mb="md" mt="md">
+                    <Group grow mb="md">
                         <Button 
                             leftSection={<GoogleIcon />} 
                             variant="default" color="gray" radius="md"
+                            disabled={loading}
                             onClick={() => alert("Google nog niet gekoppeld")}
                         >
                             Google
@@ -161,6 +179,7 @@ function Register() {
                             leftSection={<IconBrandFacebook size={18} />} 
                             radius="md"
                             bg="#4267B2" c="white"
+                            disabled={loading}
                             onClick={() => alert("Facebook nog niet gekoppeld")}
                             styles={{ root: { '&:hover': { backgroundColor: '#365899' } } }}
                         >

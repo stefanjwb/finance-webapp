@@ -1,18 +1,22 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route } from 'react-router-dom';
 import Login from './Login';
 import Register from './Register';
+import AdminPanel from './AdminPanel';
+import Main from './main'; 
+import ProtectedRoute from './ProtectedRoute';
+import Dashboard from './Dashboard';
 
 function App() {
   return (
     <Routes>
-      {/* De route naar de inlogpagina */}
       <Route path="/login" element={<Login />} />
-
-      {/* De route naar de registratiepagina */}
       <Route path="/register" element={<Register />} />
-
-      {/* Vangnet: Als iemand een onbekende URL typt, stuur ze naar /login */}
-      <Route path="*" element={<Navigate to="/login" replace />} />
+      <Route path="/admin" element={<ProtectedRoute requiredRole="admin"> <AdminPanel /> </ProtectedRoute>} />
+      <Route path="/" element={<Dashboard />} />
+      
+      {/* Hoofdpagina (Dashboard) */}
+      {/* 2. Hier koppelen we de '/' URL aan jouw nieuwe Main component */}
+      <Route path="/" element={<Main />} />
     </Routes>
   );
 }
