@@ -28,7 +28,11 @@ function Register() {
         setError('');
 
         try {
-            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+            // BELANGRIJK: Gebruik de ingestelde variabele of fallback naar 5001 (voor Mac support)
+            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+            
+            console.log("Registreren via:", API_URL); // Voor debugging in je browser console
+
             const response = await fetch(`${API_URL}/api/auth/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -38,13 +42,16 @@ function Register() {
             const data = await response.json();
 
             if (!response.ok) {
+                // Toon de foutmelding van de server (bijv. "Email al in gebruik")
                 throw new Error(data.error || 'Registratie mislukt');
             }
 
-            alert('Account aangemaakt! Je kunt nu inloggen.');
+            // Als het gelukt is:
+            alert('Account succesvol aangemaakt! Je wordt nu doorgestuurd naar de inlogpagina.');
             navigate('/login'); 
 
         } catch (err) {
+            console.error(err);
             setError(err.message);
         }
     };
@@ -52,7 +59,7 @@ function Register() {
     return (
         <Box style={{ display: 'flex', minHeight: '100vh', width: '100vw' }}>
             
-            {/* ================= LINKER KANT (Dezelfde afbeelding als Login) ================= */}
+            {/* ================= LINKER KANT (Afbeelding) ================= */}
             <Box 
                 visibleFrom="md" 
                 style={{ 

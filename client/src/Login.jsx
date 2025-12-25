@@ -26,11 +26,37 @@ function Login() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
+
         try {
-            console.log("Inloggen met:", formData);
-            // API call logic hier...
-            alert("Inlogknop werkt!"); 
+            // BELANGRIJK: Gebruik de ingestelde variabele of fallback naar 5001 (voor Mac support)
+            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+            
+            console.log("Inloggen via:", API_URL); // Voor debugging
+
+            const response = await fetch(`${API_URL}/api/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(formData)
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Inloggen mislukt. Controleer je gegevens.');
+            }
+
+            // Token en gebruikersinfo opslaan in de browser
+            localStorage.setItem('token', data.token);
+            if (data.user) {
+                localStorage.setItem('user', JSON.stringify(data.user));
+            }
+
+            // Doorsturen naar de hoofdpagina (Dashboard)
+            console.log("Login succesvol, doorsturen...");
+            navigate('/'); 
+
         } catch (err) {
+            console.error(err);
             setError(err.message);
         }
     };

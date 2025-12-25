@@ -12,7 +12,6 @@ const getAllUsers = async (req, res) => {
                 email: true,
                 role: true,
                 createdAt: true
-                // We selecteren expres GEEN password
             }
         });
         res.json(users);
@@ -24,11 +23,12 @@ const getAllUsers = async (req, res) => {
 
 // 2. Een gebruiker verwijderen
 const deleteUser = async (req, res) => {
-    const { id } = req.params; // Haal ID uit de URL
+    const { id } = req.params;
 
     try {
+        // BELANGRIJK: Geen parseInt() meer gebruiken voor MongoDB!
         await prisma.user.delete({
-            where: { id: parseInt(id) } // Zorg dat het een getal is
+            where: { id: id } 
         });
         res.json({ message: "Gebruiker succesvol verwijderd" });
     } catch (error) {

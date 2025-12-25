@@ -1,32 +1,36 @@
-// server/prisma/schema.prisma
-
-// server/prisma/schema.prisma
-
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
 // Het Gebruiker model
 model User {
-  id            Int      @id @default(autoincrement())
+  // MongoDB ID specificatie:
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
   username      String   @unique
   email         String   @unique
-  password      String   // Dit is de gehashte versie
-  role          String   @default("user") // 'user', 'organizer', 'admin'
+  password      String
+  role          String   @default("user")
   createdAt     DateTime @default(now())
+  
+  // Relatie: Een gebruiker heeft meerdere transacties
+  transactions  Transaction[]
 }
 
-// Het Uitnodigingscode model (voor registratie)
-model InvitationCode {
-  id        Int      @id @default(autoincrement())
-  code      String   @unique
-  role      String   @default("user")
-  isUsed    Boolean  @default(false)
-  createdAt DateTime @default(now())
+// Het Transactie model (Nieuw voor je Finance App)
+model Transaction {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  amount      Float    // Bedrag
+  type        String   // 'income' of 'expense'
+  category    String   // bijv. 'Boodschappen', 'Huur', 'Salaris'
+  description String?
+  date        DateTime @default(now())
+  
+  // Koppeling aan User
+  userId      String   @db.ObjectId
+  user        User     @relation(fields: [userId], references: [id])
 }
