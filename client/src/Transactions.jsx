@@ -2,11 +2,11 @@ import { useEffect, useState, useCallback } from 'react';
 import { 
     Container, Title, Text, Group, Paper, Button, Table, ActionIcon, 
     Modal, TextInput, NumberInput, Select, Stack, SegmentedControl, 
-    Center, Loader, FileButton, Checkbox, ThemeIcon, rem, Progress // Progress toegevoegd
+    Center, Loader, FileButton, Checkbox, ThemeIcon, rem, Progress 
 } from '@mantine/core';
 import { 
     IconTrash, IconUpload, IconPlus, IconArrowUpRight, IconArrowDownLeft, 
-    IconFileSpreadsheet // Icoon voor de modal
+    IconFileSpreadsheet 
 } from '@tabler/icons-react';
 
 function Transactions() {
@@ -17,9 +17,9 @@ function Transactions() {
     const [modalOpen, setModalOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
     
-    // NIEUWE STATES voor upload voortgang
+    // Upload States
     const [uploadProgress, setUploadProgress] = useState(0);
-    const [uploadStatus, setUploadStatus] = useState(''); // 'Uploaden...' of 'Verwerken...'
+    const [uploadStatus, setUploadStatus] = useState('');
 
     // Formulier States
     const [formType, setFormType] = useState('expense');
@@ -48,7 +48,13 @@ function Transactions() {
         fetchTransactions();
     }, [fetchTransactions]);
 
-    // --- NIEUWE UPLOAD HANDLER ---
+    // Hulpfunctie voor het selecteren van een rij
+    const toggleRow = (id) => {
+        setSelectedIds(prev => 
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
     const handleCSVUpload = (file) => {
         if (!file) return;
         const token = localStorage.getItem('token');
@@ -59,37 +65,29 @@ function Transactions() {
         setUploadProgress(0);
         setUploadStatus('Bestand uploaden...');
 
-        // We gebruiken XMLHttpRequest voor progress events (fetch kan dit niet standaard)
         const xhr = new XMLHttpRequest();
         xhr.open('POST', `${API_URL}/api/transactions/upload`, true);
         xhr.setRequestHeader('Authorization', `Bearer ${token}`);
 
-        // 1. Luister naar upload voortgang
         xhr.upload.onprogress = (event) => {
             if (event.lengthComputable) {
                 const percentComplete = Math.round((event.loaded / event.total) * 100);
                 setUploadProgress(percentComplete);
-                
-                // Als hij op 100% staat, is de browser klaar met sturen, maar de server denkt nog na
                 if (percentComplete === 100) {
                     setUploadStatus('Gegevens verwerken en opslaan...');
                 }
             }
         };
 
-        // 2. Afhandeling als het klaar is
         xhr.onload = async () => {
             if (xhr.status >= 200 && xhr.status < 300) {
-                // Succes
-                await fetchTransactions(); // Ververs de lijst
-                // Korte vertraging zodat de gebruiker ziet dat het klaar is
+                await fetchTransactions();
                 setUploadProgress(100);
                 setTimeout(() => {
                     setProcessing(false);
                     setUploadProgress(0);
                 }, 500);
             } else {
-                // Error vanuit server (bijv. CSV formaat fout)
                 try {
                     const result = JSON.parse(xhr.responseText);
                     alert(result.error || "Fout bij verwerken bestand");
@@ -100,7 +98,6 @@ function Transactions() {
             }
         };
 
-        // 3. Afhandeling netwerkfouten
         xhr.onerror = () => {
             alert("Netwerkfout bij uploaden.");
             setProcessing(false);
@@ -109,7 +106,6 @@ function Transactions() {
         xhr.send(formData);
     };
 
-    // ... (rest van de handlers: handleBulkDelete, handleDelete, handleManualSubmit blijven hetzelfde)
     const handleBulkDelete = async () => {
         const token = localStorage.getItem('token');
         if (!window.confirm(`Weet je zeker dat je ${selectedIds.length} transacties wilt verwijderen?`)) return;
@@ -166,11 +162,7 @@ function Transactions() {
                 <Group>
                     <FileButton onChange={handleCSVUpload} accept="text/csv" disabled={processing}>
                         {(props) => (
-                            <Button 
-                                {...props} 
-                                variant="default" 
-                                leftSection={<IconUpload size={18} />} 
-                            >
+                            <Button {...props} variant="default" leftSection={<IconUpload size={18} />}>
                                 Importeer CSV
                             </Button>
                         )}
@@ -215,11 +207,23 @@ function Transactions() {
                         </Table.Thead>
                         <Table.Tbody>
                             {transactions.map((t) => (
-                                <Table.Tr key={t.id} style={{ backgroundColor: selectedIds.includes(t.id) ? 'var(--mantine-color-teal-0)' : undefined }}>
-                                    <Table.Td>
+                                <Table.Tr 
+                                    key={t.id} 
+                                    onClick={() => toggleRow(t.id)} // Hele rij klikbaar
+                                    style={{ 
+                                        backgroundColor: selectedIds.includes(t.id) ? 'var(--mantine-color-teal-0)' : undefined,
+                                        cursor: 'pointer' 
+                                    }}
+                                >
+                                    {/* BELANGRIJK: We voegen onClick={(e) => e.stopPropagation()} toe aan de Table.Td
+                                        van de Checkbox en de Delete knop.
+                                        Dit zorgt ervoor dat klikken op de checkbox NIET doorgegeven wordt aan de rij (Table.Tr).
+                                        Zo voorkomen we conflicten en crashes.
+                                    */}
+                                    <Table.Td onClick={(e) => e.stopPropagation()}>
                                         <Checkbox 
                                             checked={selectedIds.includes(t.id)}
-                                            onChange={(e) => setSelectedIds(prev => e.currentTarget.checked ? [...prev, t.id] : prev.filter(id => id !== t.id))}
+                                            onChange={() => toggleRow(t.id)}
                                             color="teal"
                                         />
                                     </Table.Td>
@@ -238,7 +242,7 @@ function Transactions() {
                                     </Table.Td>
                                     <Table.Td><Text size="sm">{t.category}</Text></Table.Td>
                                     <Table.Td><Text size="xs" c="dimmed">{new Date(t.date || t.createdAt).toLocaleDateString()}</Text></Table.Td>
-                                    <Table.Td>
+                                    <Table.Td onClick={(e) => e.stopPropagation()}>
                                         <ActionIcon variant="subtle" color="gray" onClick={() => handleDelete(t.id)}>
                                             <IconTrash size={16} />
                                         </ActionIcon>
@@ -250,7 +254,7 @@ function Transactions() {
                 )}
             </Paper>
 
-            {/* Add Transaction Modal */}
+            {/* Modal Components (ongewijzigd) */}
             <Modal opened={modalOpen} onClose={() => setModalOpen(false)} title={<Text fw={700}>Nieuwe Transactie</Text>} centered radius="lg">
                 <Stack>
                     <SegmentedControl 
@@ -267,14 +271,11 @@ function Transactions() {
                 </Stack>
             </Modal>
 
-            {/* NIEUW: Upload Progress Modal */}
             <Modal 
                 opened={processing} 
-                onClose={() => {}} // Lege functie: gebruiker mag dit niet wegklikken tijdens uploaden
+                onClose={() => {}} 
                 withCloseButton={false}
-                centered
-                radius="lg"
-                padding="xl"
+                centered radius="lg" padding="xl"
             >
                 <Stack align="center" gap="md">
                     <ThemeIcon size={60} radius="100%" color="teal" variant="light">
@@ -290,7 +291,6 @@ function Transactions() {
                     <Text size="xs" fw={700} c="teal">{uploadProgress}%</Text>
                 </Stack>
             </Modal>
-
         </Container>
     );
 }
