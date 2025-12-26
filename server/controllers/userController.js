@@ -11,6 +11,7 @@ const getAllUsers = async (req, res) => {
                 username: true,
                 email: true,
                 role: true,
+                isPremium: true, // <--- NIEUW: Haal premium status op
                 createdAt: true
             }
         });
@@ -36,22 +37,32 @@ const deleteUser = async (req, res) => {
     }
 };
 
-// 3. (NIEUW) Gebruikersrol aanpassen
-const updateUserRole = async (req, res) => {
+// 3. Gebruiker updaten (Rol én Premium status)
+const updateUser = async (req, res) => {
     const { id } = req.params;
-    const { role } = req.body; // Verwacht { role: 'admin' } of { role: 'user' }
+    const { role, isPremium } = req.body; 
 
     try {
         const updatedUser = await prisma.user.update({
             where: { id: id },
-            data: { role: role },
-            select: { id: true, username: true, email: true, role: true } // Stuur de nieuwe data terug
+            data: { 
+                role: role,
+                isPremium: Boolean(isPremium) // Zorg dat het opgeslagen wordt
+            },
+            select: { 
+                id: true, 
+                username: true, 
+                email: true, 
+                role: true,
+                isPremium: true // Stuur de nieuwe status terug naar frontend
+            } 
         });
         res.json(updatedUser);
     } catch (error) {
-        console.error("Fout bij aanpassen rol:", error);
-        res.status(500).json({ error: "Kon rol niet aanpassen" });
+        console.error("Fout bij updaten gebruiker:", error);
+        res.status(500).json({ error: "Kon gebruiker niet updaten" });
     }
 };
 
-module.exports = { getAllUsers, deleteUser, updateUserRole };
+// Let op: updateUserRole is hernoemd naar updateUser
+module.exports = { getAllUsers, deleteUser, updateUser };

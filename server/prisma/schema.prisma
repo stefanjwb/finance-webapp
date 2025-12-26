@@ -15,6 +15,7 @@ model User {
   email         String   @unique
   password      String
   role          String   @default("user")
+  isPremium     Boolean  @default(false)
   createdAt     DateTime @default(now())
   
   // Relatie: Een gebruiker heeft meerdere transacties

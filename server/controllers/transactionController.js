@@ -4,39 +4,78 @@ const prisma = new PrismaClient();
 const fs = require('fs');
 const csv = require('csv-parser');
 const { OpenAI } = require('openai');
+const crypto = require('crypto');
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const BATCH_SIZE = 20;
 
-/**
- * Helper: Slaapfunctie voor vertraging (voorkomt database & AI overbelasting)
- */
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-/**
- * Hulpfunctie: Laat AI de transactie analyseren met DEBUG logging en STRENGE schoonmaak regels
- */
-const analyzeTransaction = async (rawDescription) => {
-    // Fallback: Als alles misgaat, behoud het origineel maar log het wel
-    const fallback = { category: 'Onvoorzien', cleanName: rawDescription || 'Onbekend' };
+// --- GRATIS LOKALE SCHOONMAAK FUNCTIE ---
+// Dit vervangt het dure AI-werk voor de naam bij gratis gebruikers.
+const cleanNameLocal = (rawDescription) => {
+    if (!rawDescription) return "Onbekend";
     
-    if (!rawDescription) return fallback;
+    return rawDescription
+        .replace(/\d{2}-\d{2}-\d{4}/g, '') // Datums weg
+        .replace(/\d{4,}/g, '')            // Lange cijferreeksen weg
+        .replace(/EUR/g, '')               // Valuta weg
+        .replace(/Passnr[\s\S]*/gi, '')    // Pasnummers weg
+        .replace(/\s+/g, ' ')              // Dubbele spaties weg
+        .trim()
+        .toLowerCase()
+        .replace(/\b\w/g, s => s.toUpperCase()); // Title Case
+};
 
-    const categoriesList = [
-        "Hypotheek of huur", "Energie (gas/licht)", "Water", "Zorgverzekering", 
-        "Overige verzekeringen (inboedel, auto, etc.)", "Internet en TV", 
-        "Mobiele abonnementen", "Gemeentelijke en waterschapsbelastingen", 
-        "Boodschappen", "Verzorgingsproducten (drogisterij)", 
-        "Brandstof en parkeerkosten", "Openbaar vervoer", "Onderhoud auto", 
-        "Huishoudelijke artikelen", "Restaurants en cafébezoek", 
-        "Afhaalmaaltijden en bezorging", "Entertainment (bioscoop, uitstapjes)", 
-        "Streamingdiensten en tijdschriften (Netflix, Spotify, etc.)", 
-        "Sportschool", "Shoppen (kleding, elektronica, hobby's)", 
-        "Uiterlijke verzorging (kapper)", "Sparen en beleggen", 
-        "Aflossing schulden of leningen", "Bankkosten", "Onvoorzien"
-    ];
+// --- STATIC KEYWORDS (GRATIS) ---
+const STATIC_KEYWORDS = {
+    'albert heijn': { cleanName: 'Albert Heijn', category: 'Boodschappen' },
+    'ah to go': { cleanName: 'AH to go', category: 'Boodschappen' },
+    'jumbo': { cleanName: 'Jumbo', category: 'Boodschappen' },
+    'lidl': { cleanName: 'Lidl', category: 'Boodschappen' },
+    'plus': { cleanName: 'Plus', category: 'Boodschappen' },
+    'dirk': { cleanName: 'Dirk', category: 'Boodschappen' },
+    'picnic': { cleanName: 'Picnic', category: 'Boodschappen' },
+    'kruidvat': { cleanName: 'Kruidvat', category: 'Verzorgingsproducten' },
+    'etos': { cleanName: 'Etos', category: 'Verzorgingsproducten' },
+    'shell': { cleanName: 'Shell', category: 'Brandstof en parkeren' },
+    'tinq': { cleanName: 'TinQ', category: 'Brandstof en parkeren' },
+    'ns groep': { cleanName: 'NS', category: 'Openbaar vervoer' },
+    'ns reizigers': { cleanName: 'NS', category: 'Openbaar vervoer' },
+    'bol.com': { cleanName: 'Bol.com', category: 'Shoppen en Kleding' },
+    'amazon': { cleanName: 'Amazon', category: 'Shoppen en Kleding' },
+    'coolblue': { cleanName: 'Coolblue', category: 'Shoppen en Kleding' },
+    'mediamarkt': { cleanName: 'MediaMarkt', category: 'Shoppen en Kleding' },
+    'netflix': { cleanName: 'Netflix', category: 'Streaming en Abonnementen' },
+    'spotify': { cleanName: 'Spotify', category: 'Streaming en Abonnementen' },
+    'videoland': { cleanName: 'Videoland', category: 'Streaming en Abonnementen' },
+    'ziggo': { cleanName: 'Ziggo', category: 'Internet en TV' },
+    'kpn': { cleanName: 'KPN', category: 'Internet en TV' },
+    'odido': { cleanName: 'Odido', category: 'Mobiele abonnementen' },
+    'vodafone': { cleanName: 'Vodafone', category: 'Mobiele abonnementen' },
+    'belastingdienst': { cleanName: 'Belastingdienst', category: 'Toeslagen' },
+    'pathe': { cleanName: 'Pathé', category: 'Entertainment' },
+    'ikea': { cleanName: 'IKEA', category: 'Huishoudelijke artikelen' },
+    'action': { cleanName: 'Action', category: 'Huishoudelijke artikelen' },
+    'hema': { cleanName: 'HEMA', category: 'Huishoudelijke artikelen' }
+};
 
+const createTransactionHash = (date, amount, description) => {
+    const data = `${date.toISOString()}_${amount}_${description.trim()}`;
+    return crypto.createHash('md5').update(data).digest('hex');
+};
+
+// --- CONFIGURATIE CATEGORIEËN ---
+const CATEGORIES_LIST = [
+    "Hypotheek of huur", "Energie", "Water", "Zorgverzekering", "Verzekeringen", 
+    "Internet en TV", "Mobiel", "Belastingen", "Boodschappen", "Verzorging", 
+    "Brandstof", "OV", "Auto", "Huishouden", "Horeca", "Afhalen", "Entertainment", 
+    "Abonnementen", "Sport", "Shopping", "Sparen", "Aflossing", "Bankkosten", "Salaris", "Onvoorzien"
+];
+
+/**
+ * 1. GOEDKOPE AI (GRATIS GEBRUIKERS)
+ * Vraagt alleen om categorie. Output tokens zijn minimaal.
+ */
+const analyzeCategoryOnly = async (rawDescription) => {
     try {
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
@@ -44,232 +83,238 @@ const analyzeTransaction = async (rawDescription) => {
             messages: [
                 {
                     role: "system",
-                    content: `Je bent een strikte transactie-schoonmaker.
-                    
-                    JOUW TAAK:
-                    1. **cleanName**: Herschrijf de omschrijving naar een korte, leesbare bedrijfsnaam.
-                       - VERWIJDER: Bedragen, valuta codes (EUR, PHP, USD), wisselkoersen, datums, tijdstippen.
-                       - VERWIJDER: Landcodes (zoals ", PH", "NL"), locaties codes en reeksen van willekeurige cijfers/letters.
-                       - HOUD OVER: Alleen de naam van de winkel/dienst en eventueel de stad.
-                       - VOORBEELD: "SPEEDO BORACAY SPEEDO BORACAY AKLAN, PH 1196.40 PHP" -> "Speedo Boracay Aklan"
-                       - VOORBEELD: "ALBERT HEIJN 1234 AMSTERDAM 12.40 EUR" -> "Albert Heijn"
-                    
-                    2. **category**: Kies EXACT één categorie uit deze lijst: ${categoriesList.join(", ")}.
-
-                    Geef JSON terug in dit formaat: { "cleanName": "...", "category": "..." }`
+                    content: `Categoriseer. Kies uit: ${CATEGORIES_LIST.join(",")}. JSON output: {"category": "jouw_keuze"}`
                 },
-                {
-                    role: "user",
-                    content: `Maak schoon en categoriseer: "${rawDescription}"`
-                }
+                { role: "user", content: rawDescription }
             ],
-            temperature: 0.1, // Laag houden voor consistentie
+            temperature: 0,
         });
-
-        const result = JSON.parse(response.choices[0].message.content);
-        
-        // --- DEBUG LOGGING ---
-        // console.log(`AI: "${rawDescription}" -> "${result.cleanName}"`);
-
-        return {
-            cleanName: result.cleanName || rawDescription,
-            category: result.category || 'Onvoorzien'
-        };
-
+        return JSON.parse(response.choices[0].message.content);
     } catch (error) {
-        console.error("AI ERROR (Fallback):", error.message);
-        return fallback;
+        console.error("AI Fout (Gratis):", error.message);
+        return { category: 'Onvoorzien' };
     }
 };
 
 /**
- * 1. Haal alle transacties op voor de ingelogde gebruiker
+ * 2. LUXE AI (PREMIUM GEBRUIKERS)
+ * Vraagt om categorie EN een mooie naam. Kost iets meer tokens.
  */
+const analyzePremium = async (rawDescription) => {
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            response_format: { type: "json_object" }, 
+            messages: [
+                {
+                    role: "system",
+                    content: `Jij bent een transactie-expert.
+                    1. cleanName: Herschrijf de omschrijving naar een korte, mooie bedrijfsnaam (zonder steden/cijfers).
+                    2. category: Kies een categorie uit: ${CATEGORIES_LIST.join(",")}.
+                    JSON: { "cleanName": "...", "category": "..." }`
+                },
+                { role: "user", content: rawDescription }
+            ],
+            temperature: 0.1, // Iets creatiever voor de naam
+        });
+        return JSON.parse(response.choices[0].message.content);
+    } catch (error) {
+        console.error("AI Fout (Premium):", error.message);
+        return { category: 'Onvoorzien', cleanName: rawDescription };
+    }
+};
+
+// ... CRUD FUNCTIES ...
 const getTransactions = async (req, res) => {
     try {
-        const userId = req.user.userId;
-        const transactions = await prisma.transaction.findMany({
-            where: { userId: userId },
-            orderBy: { date: 'desc' }
-        });
+        const transactions = await prisma.transaction.findMany({ where: { userId: req.user.userId }, orderBy: { date: 'desc' } });
         res.json(transactions);
-    } catch (error) {
-        console.error("Fout bij ophalen transacties:", error);
-        res.status(500).json({ error: "Kon transacties niet ophalen." });
-    }
+    } catch (e) { res.status(500).json({ error: "Fout" }); }
 };
 
-/**
- * 2. Handmatig een enkele transactie toevoegen
- */
 const createTransaction = async (req, res) => {
     try {
         const { amount, type, category, description, date } = req.body;
-        const userId = req.user.userId;
-
-        if (!amount || !type || !description) {
-            return res.status(400).json({ error: "Verplichte velden ontbreken." });
-        }
-
         const newTransaction = await prisma.transaction.create({
-            data: {
-                amount: Math.abs(parseFloat(amount)),
-                type,
-                category: String(category || 'Onvoorzien'), 
-                description: String(description),
-                date: date ? new Date(date) : new Date(),
-                userId: userId
-            }
+            data: { amount: Math.abs(parseFloat(amount)), type, category: category || 'Onvoorzien', description, date: date ? new Date(date) : new Date(), userId: req.user.userId }
         });
-
         res.status(201).json(newTransaction);
-    } catch (error) {
-        console.error("Fout bij aanmaken transactie:", error);
-        res.status(500).json({ error: "Kon transactie niet opslaan." });
-    }
+    } catch (e) { res.status(500).json({ error: "Fout" }); }
 };
 
-/**
- * 3. Verwijder een transactie
- */
 const deleteTransaction = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userId = req.user.userId;
-
-        const transaction = await prisma.transaction.findFirst({
-            where: { id: id, userId: userId }
-        });
-
-        if (!transaction) {
-            return res.status(404).json({ error: "Transactie niet gevonden." });
-        }
-
-        await prisma.transaction.delete({ where: { id: id } });
-        res.json({ message: "Transactie succesvol verwijderd." });
-    } catch (error) {
-        console.error("Fout bij verwijderen transactie:", error);
-        res.status(500).json({ error: "Kon transactie niet verwijderen." });
-    }
+    try { await prisma.transaction.delete({ where: { id: req.params.id } }); res.json({ message: "Verwijderd" }); } 
+    catch (e) { res.status(500).json({ error: "Fout" }); }
 };
 
-/**
- * 3.1 Bulk-verwijderen van transacties
- */
 const deleteMultipleTransactions = async (req, res) => {
-    try {
-        const { ids } = req.body;
-        const userId = req.user.userId;
-
-        if (!ids || !Array.isArray(ids)) {
-            return res.status(400).json({ error: "Geen geldige ID's opgegeven." });
-        }
-
-        await prisma.transaction.deleteMany({
-            where: {
-                id: { in: ids },
-                userId: userId
-            }
-        });
-
-        res.json({ message: `${ids.length} transacties succesvol verwijderd.` });
-    } catch (error) {
-        console.error("Bulk delete error:", error);
-        res.status(500).json({ error: "Kon transacties niet verwijderen." });
-    }
+    try { await prisma.transaction.deleteMany({ where: { id: { in: req.body.ids }, userId: req.user.userId } }); res.json({ message: "Verwijderd" }); } 
+    catch (e) { res.status(500).json({ error: "Fout" }); }
 };
 
 /**
- * 4. Upload en verwerk CSV (Sequentieel om crashes te voorkomen)
+ * DE ULTRA-ZUINIGE UPLOAD FUNCTIE (MET PREMIUM CHECK)
  */
 const uploadCSV = async (req, res) => {
     const filePath = req.file?.path;
-    if (!req.file) return res.status(400).json({ error: "Geen bestand geüpload." });
+    if (!req.file) return res.status(400).json({ error: "Geen bestand." });
 
     const userId = req.user.userId;
     const results = [];
+    const aiCache = new Map();
 
     try {
-        // 1. Detecteer separator
-        const firstLine = await new Promise((resolve) => {
-            const stream = fs.createReadStream(filePath, { end: 99 });
-            stream.on('data', (chunk) => {
-                resolve(chunk.toString().split('\n')[0]);
-                stream.destroy();
-            });
-        });
-        const detectedSeparator = firstLine.includes(';') ? ';' : ',';
-
-        // 2. Lees bestand in geheugen
-        await new Promise((resolve, reject) => {
-            fs.createReadStream(filePath)
-                .pipe(csv({ separator: detectedSeparator }))
-                .on('data', (data) => results.push(data))
-                .on('error', (err) => reject(err))
-                .on('end', () => resolve());
-        });
-
-        console.log(`Start verwerking van ${results.length} rijen (één voor één)...`);
+        // 1. Check PREMIUM Status van gebruiker
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        const isPremium = user?.isPremium || false;
         
-        const transactionsToCreate = [];
+        console.log(`Import gestart voor ${user.username} (${isPremium ? 'PREMIUM' : 'GRATIS'})`);
 
-        // 3. Verwerk transacties EÉN VOOR EÉN (geen Promise.all)
-        for (const [index, row] of results.entries()) {
-            // Data ophalen
-            const name = row['Name'] || '';
-            const rowDesc = row['Description'] || '';
-            const rawDescription = `${name} ${rowDesc}`.trim() || 'Bank Import';
-            
-            const rawAmount = row['Amount'] || row['Bedrag'] || '0';
-            const parsedAmount = parseFloat(String(rawAmount).replace(',', '.'));
-            
-            // Skip ongeldige regels
-            if (isNaN(parsedAmount) || parsedAmount === 0) continue;
+        // 2. CSV Inlezen
+        const firstLine = await new Promise((resolve) => {
+            const stream = fs.createReadStream(filePath, { end: 100 });
+            stream.on('data', (c) => { resolve(c.toString().split('\n')[0]); stream.destroy(); });
+        });
+        const separator = firstLine.includes(';') ? ';' : ',';
 
-            // AI Aanroep (Sequentieel)
-            const analysis = await analyzeTransaction(rawDescription);
+        await new Promise((resolve, reject) => {
+            fs.createReadStream(filePath).pipe(csv({ separator })).on('data', d => results.push(d)).on('error', reject).on('end', resolve);
+        });
 
-            // Toevoegen aan lijst
-            transactionsToCreate.push({
-                amount: Math.abs(parsedAmount),
-                type: parsedAmount >= 0 ? 'income' : 'expense',
-                description: analysis.cleanName.substring(0, 255), 
-                category: analysis.category,
-                date: new Date(row['Date'] || row['Datum'] || new Date()),
-                userId: userId
+        // 3. Historie en Hashes ophalen
+        const history = await prisma.transaction.findMany({
+            where: { userId },
+            select: { description: true, category: true },
+            distinct: ['description'] 
+        });
+        const historyMap = new Map();
+        history.forEach(t => { if (t.description) historyMap.set(t.description.toLowerCase(), t.category); });
+
+        const existingHashes = new Set();
+        const allUserTransactions = await prisma.transaction.findMany({ where: { userId }, select: { date: true, amount: true, description: true } });
+        allUserTransactions.forEach(t => existingHashes.add(createTransactionHash(t.date, t.amount, t.description)));
+
+        console.log(`Start verwerking van ${results.length} regels.`);
+
+        let transactionsToCreate = [];
+        let stats = { skipped: 0, static: 0, history: 0, ai_cache: 0, ai_cost: 0 };
+
+        for (let i = 0; i < results.length; i += BATCH_SIZE) {
+            const batch = results.slice(i, i + BATCH_SIZE);
+            const batchPromises = batch.map(async (row) => {
+                const name = row['Name'] || row['Naam'] || '';
+                const desc = row['Description'] || row['Omschrijving'] || row['Mededelingen'] || '';
+                const rawDesc = `${name} ${desc}`.trim() || 'Import';
+                const lowerDesc = rawDesc.toLowerCase();
+                const rawAmt = row['Amount'] || row['Bedrag'] || '0';
+                const amount = parseFloat(String(rawAmt).replace(',', '.'));
+                
+                if (isNaN(amount) || amount === 0) return null;
+
+                const date = new Date(row['Date'] || row['Datum'] || new Date());
+                const type = amount >= 0 ? 'income' : 'expense';
+
+                // Initialiseer variabelen
+                let finalName = null;
+                let finalCategory = null;
+
+                // --- STAP 1: CHECK STATIC KEYWORDS (GRATIS) ---
+                for (const [key, val] of Object.entries(STATIC_KEYWORDS)) {
+                    if (lowerDesc.includes(key)) {
+                        finalName = val.cleanName; // Mooie hardcoded naam
+                        finalCategory = val.category;
+                        stats.static++;
+                        break;
+                    }
+                }
+
+                // --- STAP 2: CHECK HISTORIE (GRATIS) ---
+                if (!finalCategory) {
+                    for (const [histName, histCat] of historyMap) {
+                        if (lowerDesc.includes(histName)) {
+                            finalCategory = histCat;
+                            // Als de gebruiker premium is, willen we misschien toch een mooiere naam? 
+                            // Voor nu nemen we de historie naam over als die er is, anders regex.
+                            if (!finalName) finalName = isPremium ? (histName.charAt(0).toUpperCase() + histName.slice(1)) : cleanNameLocal(rawDesc);
+                            stats.history++;
+                            break;
+                        }
+                    }
+                }
+
+                // --- STAP 3: AI (BETAALD) ---
+                // Hier splitsen we tussen Premium en Gratis logica
+                if (!finalCategory) {
+                    if (aiCache.has(rawDesc)) {
+                        // Cache Hit (voor beide types)
+                        const cached = aiCache.get(rawDesc);
+                        finalCategory = cached.category;
+                        finalName = cached.cleanName || cleanNameLocal(rawDesc);
+                        stats.ai_cache++;
+                    } else {
+                        // AI Call nodig
+                        if (isPremium) {
+                            // PREMIUM: Vraag naam + categorie
+                            const result = await analyzePremium(rawDesc);
+                            finalName = result.cleanName;
+                            finalCategory = result.category;
+                            
+                            aiCache.set(rawDesc, result);
+                            stats.ai_cost++; // Duurdere call
+                        } else {
+                            // GRATIS: Vraag alleen categorie
+                            const result = await analyzeCategoryOnly(rawDesc);
+                            finalCategory = result.category;
+                            finalName = cleanNameLocal(rawDesc); // Doe naam lokaal
+                            
+                            aiCache.set(rawDesc, { ...result, cleanName: finalName });
+                            stats.ai_cost++; // Goedkopere call
+                        }
+                    }
+                } else if (!finalName) {
+                    // Als we wel een categorie hebben (uit historie) maar nog geen naam
+                    finalName = cleanNameLocal(rawDesc);
+                }
+
+                // --- STAP 4: DEDUPLICATIE ---
+                const hash = createTransactionHash(date, Math.abs(amount), finalName);
+                if (existingHashes.has(hash)) {
+                    stats.skipped++;
+                    return null;
+                }
+                existingHashes.add(hash);
+
+                return {
+                    amount: Math.abs(amount),
+                    type,
+                    description: finalName.substring(0, 255),
+                    category: finalCategory,
+                    date,
+                    userId
+                };
             });
 
-            // Log de voortgang
-            console.log(`[${index + 1}/${results.length}] Verwerkt: ${analysis.cleanName}`);
-
-            // PAUZE: Wacht 300ms om DB en AI te ontlasten
-            await sleep(300);
+            const validResults = (await Promise.all(batchPromises)).filter(r => r !== null);
+            transactionsToCreate.push(...validResults);
         }
 
-        // 4. Bulk insert in database
         if (transactionsToCreate.length > 0) {
             await prisma.transaction.createMany({ data: transactionsToCreate });
         }
 
+        console.log(`Klaar. Nieuw: ${transactionsToCreate.length}. Skipped: ${stats.skipped}. AI calls: ${stats.ai_cost}`);
+
         res.json({ 
-            message: `Import succesvol: ${transactionsToCreate.length} transacties toegevoegd.`,
+            message: `Klaar! ${transactionsToCreate.length} transacties toegevoegd.`,
             count: transactionsToCreate.length 
         });
 
     } catch (error) {
-        console.error("Fout bij CSV verwerking:", error);
-        res.status(500).json({ error: "Fout bij verwerken van CSV." });
+        console.error(error);
+        res.status(500).json({ error: "Fout" });
     } finally {
-        if (filePath && fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-        }
+        if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
 };
 
-module.exports = { 
-    getTransactions, 
-    createTransaction, 
-    deleteTransaction, 
-    deleteMultipleTransactions,
-    uploadCSV 
-};
+module.exports = { getTransactions, createTransaction, deleteTransaction, deleteMultipleTransactions, uploadCSV };
