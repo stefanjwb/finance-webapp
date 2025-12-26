@@ -5,7 +5,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { 
     IconLayoutDashboard, IconListDetails, IconChartPie3, 
     IconCoin, IconSettings, IconLogout, IconChartPie2, 
-    IconShieldLock // <--- Icoon voor admin
+    IconShieldLock 
 } from '@tabler/icons-react';
 
 function Layout() {
@@ -26,23 +26,24 @@ function Layout() {
         navigate('/login');
     };
 
-    // Basis navigatie items
-    let navItems = [
-        { label: 'Dashboard', icon: IconLayoutDashboard, link: '/dashboard' },
-        { label: 'Transacties', icon: IconListDetails, link: '/transactions' },
-        { label: 'Statistieken', icon: IconChartPie3, link: '/statistics' },
-        { label: 'Budgetten', icon: IconCoin, link: '/budgets' },
-        { label: 'Instellingen', icon: IconSettings, link: '/settings' },
-    ];
+    const isAdmin = user?.role === 'admin';
+    // Gewoon de standaard 'teal' kleur, ook voor admins
+    const appColor = 'teal'; 
 
-    // ALS ADMIN: Voeg "Gebruikersbeheer" toe aan de lijst
-    if (user && user.role === 'admin') {
-        navItems.push({ 
-            label: 'Gebruikersbeheer', 
-            icon: IconShieldLock, 
-            link: '/admin',
-            color: 'grape' // Opvallend kleurtje
-        });
+    let navItems = [];
+
+    if (isAdmin) {
+        navItems = [
+            { label: 'Gebruikersbeheer', icon: IconShieldLock, link: '/admin', color: 'teal' }
+        ];
+    } else {
+        navItems = [
+            { label: 'Dashboard', icon: IconLayoutDashboard, link: '/dashboard' },
+            { label: 'Transacties', icon: IconListDetails, link: '/transactions' },
+            { label: 'Statistieken', icon: IconChartPie3, link: '/statistics' },
+            { label: 'Budgetten', icon: IconCoin, link: '/budgets' },
+            { label: 'Instellingen', icon: IconSettings, link: '/settings' },
+        ];
     }
 
     return (
@@ -56,18 +57,20 @@ function Layout() {
                 <Group h="100%" px="md" justify="space-between">
                     <Group>
                         <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-                        <Group gap="xs" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
-                            <ThemeIcon size={30} radius="md" color="teal" variant="light">
+                        <Group gap="xs" style={{ cursor: 'pointer' }} onClick={() => navigate(isAdmin ? '/admin' : '/dashboard')}>
+                            <ThemeIcon size={30} radius="md" color={appColor} variant="light">
                                 <IconChartPie2 size={18} />
                             </ThemeIcon>
-                            <Text fw={900} size="xl" c="teal">Belio</Text>
+                            <Text fw={900} size="xl" c={appColor}>
+                                {isAdmin ? 'Belio Admin' : 'Belio'}
+                            </Text>
                         </Group>
                     </Group>
                     
                     {user && (
                         <Menu shadow="md" width={200} position="bottom-end">
                             <Menu.Target>
-                                <Button variant="subtle" color="gray" leftSection={<Avatar color="teal" radius="xl" size="sm">{user.username?.slice(0, 2).toUpperCase()}</Avatar>}>
+                                <Button variant="subtle" color="gray" leftSection={<Avatar color={appColor} radius="xl" size="sm">{user.username?.slice(0, 2).toUpperCase()}</Avatar>}>
                                     {user.username}
                                 </Button>
                             </Menu.Target>
@@ -93,7 +96,7 @@ function Layout() {
                                 navigate(item.link);
                                 if (opened) toggle();
                             }}
-                            color={item.color || "teal"}
+                            color={item.color || appColor}
                             variant="filled"
                             style={{ borderRadius: '8px', marginBottom: '4px' }}
                         />

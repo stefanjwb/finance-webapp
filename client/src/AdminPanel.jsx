@@ -2,11 +2,11 @@ import { useEffect, useState, useMemo } from 'react';
 import { 
     Table, Container, Title, Text, Group, Paper, ActionIcon, Badge, Avatar, 
     TextInput, SimpleGrid, Card, Modal, Button, Tooltip, Center, Loader, 
-    Select, Switch, Stack, rem // <--- Switch en Stack toegevoegd
+    Select, Switch, Stack, rem 
 } from '@mantine/core';
 import { 
-    IconTrash, IconSearch, IconShieldLock, IconUsers, IconUserPlus, 
-    IconEdit, IconDiamond // <--- IconDiamond toegevoegd
+    IconTrash, IconSearch, IconShieldLock, IconUsers, 
+    IconEdit, IconDiamond 
 } from '@tabler/icons-react';
 
 function AdminPanel() {
@@ -21,11 +21,10 @@ function AdminPanel() {
     const [editModalOpen, setEditModalOpen] = useState(false);
     const [userToEdit, setUserToEdit] = useState(null);
     const [newRole, setNewRole] = useState(''); 
-    const [isPremium, setIsPremium] = useState(false); // <--- State voor Premium
+    const [isPremium, setIsPremium] = useState(false); 
 
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
-    // 1. Data Ophalen (NU MET TOKEN)
     useEffect(() => {
         fetchUsers();
     }, []);
@@ -34,7 +33,7 @@ function AdminPanel() {
         const token = localStorage.getItem('token');
         try {
             const response = await fetch(`${API_URL}/api/users`, {
-                headers: { 'Authorization': `Bearer ${token}` } // <--- Token meesturen!
+                headers: { 'Authorization': `Bearer ${token}` } 
             });
             if (!response.ok) throw new Error("Kon gebruikers niet ophalen");
             const data = await response.json();
@@ -46,7 +45,6 @@ function AdminPanel() {
         }
     };
 
-    // 2. Verwijderen
     const confirmDelete = (user) => {
         setUserToDelete(user);
         setDeleteModalOpen(true);
@@ -67,11 +65,10 @@ function AdminPanel() {
         } catch (error) { console.error(error); }
     };
 
-    // 3. Bewerken
     const openEditModal = (user) => {
         setUserToEdit(user);
         setNewRole(user.role);
-        setIsPremium(user.isPremium || false); // <--- Laad huidige status
+        setIsPremium(user.isPremium || false); 
         setEditModalOpen(true);
     };
 
@@ -103,33 +100,41 @@ function AdminPanel() {
         );
     }, [users, search]);
 
+    // Stats: Nu zijn alle icoontjes 'teal'
     const stats = [
-        { title: 'Totaal Gebruikers', value: users.length, icon: IconUsers, color: 'blue' },
-        { title: 'Admins', value: users.filter(u => u.role === 'admin').length, icon: IconShieldLock, color: 'grape' },
-        { title: 'Premium Leden', value: users.filter(u => u.isPremium).length, icon: IconDiamond, color: 'teal' },
+        { title: 'Totaal Gebruikers', value: users.length, icon: IconUsers, color: 'teal' },
+        { title: 'Admins', value: users.filter(u => u.role === 'admin').length, icon: IconShieldLock, color: 'teal' }, 
+        { title: 'Premium Leden', value: users.filter(u => u.isPremium).length, icon: IconDiamond, color: 'teal' }, 
     ];
 
-    if (loading) return <Center h="100vh"><Loader size="xl" /></Center>;
+    if (loading) return <Center h="100vh"><Loader color="teal" size="xl" /></Center>;
 
     const rows = filteredUsers.map((user) => (
         <Table.Tr key={user.id}>
             <Table.Td>
                 <Group gap="sm">
-                    <Avatar color={user.role === 'admin' ? 'grape' : 'blue'} name={user.username} radius="xl">{user.username.slice(0, 2).toUpperCase()}</Avatar>
+                    {/* Avatars zijn nu ook altijd teal voor een strakke look */}
+                    <Avatar color="teal" name={user.username} radius="xl">
+                        {user.username.slice(0, 2).toUpperCase()}
+                    </Avatar>
                     <div>
                         <Group gap={6}>
                             <Text size="sm" fw={500}>{user.username}</Text>
-                            {user.isPremium && <Badge leftSection={<IconDiamond size={8}/>} variant="gradient" gradient={{ from: 'teal', to: 'lime', deg: 105 }} size="xs">PRO</Badge>}
+                            {/* Premium Badge */}
+                            {user.isPremium && <Badge leftSection={<IconDiamond size={8}/>} variant="gradient" gradient={{ from: 'teal', to: 'lime', deg: 105 }} size="xs">PREMIUM</Badge>}
                         </Group>
                         <Text size="xs" c="dimmed">{user.email}</Text>
                     </div>
                 </Group>
             </Table.Td>
-            <Table.Td><Badge color={user.role === 'admin' ? 'grape' : 'gray'} variant="light">{user.role}</Badge></Table.Td>
+            <Table.Td>
+                {/* Rol badge kleurt mee */}
+                <Badge color={user.role === 'admin' ? 'teal' : 'gray'} variant="light">{user.role}</Badge>
+            </Table.Td>
             <Table.Td><Text size="sm" c="dimmed">{new Date(user.createdAt).toLocaleDateString('nl-NL')}</Text></Table.Td>
             <Table.Td>
                 <Group gap={0}>
-                    <Tooltip label="Aanpassen"><ActionIcon variant="subtle" color="blue" onClick={() => openEditModal(user)}><IconEdit style={{ width: rem(20) }} /></ActionIcon></Tooltip>
+                    <Tooltip label="Aanpassen"><ActionIcon variant="subtle" color="teal" onClick={() => openEditModal(user)}><IconEdit style={{ width: rem(20) }} /></ActionIcon></Tooltip>
                     <Tooltip label="Verwijderen"><ActionIcon variant="subtle" color="red" onClick={() => confirmDelete(user)}><IconTrash style={{ width: rem(20) }} /></ActionIcon></Tooltip>
                 </Group>
             </Table.Td>
@@ -138,7 +143,8 @@ function AdminPanel() {
 
     return (
         <Container size="xl" py="xl">
-            <Title order={2} mb="xl">Gebruikersbeheer</Title>
+            <Title order={2} mb="xl" c="teal">Gebruikersbeheer</Title>
+            
             <SimpleGrid cols={{ base: 1, sm: 3 }} mb="xl">
                 {stats.map((stat) => (
                     <Card key={stat.title} withBorder shadow="sm" p="lg" radius="md">
@@ -149,8 +155,15 @@ function AdminPanel() {
                     </Card>
                 ))}
             </SimpleGrid>
+
             <Paper shadow="sm" radius="md" withBorder p="md">
-                <TextInput placeholder="Zoeken..." value={search} onChange={(e) => setSearch(e.currentTarget.value)} mb="md" leftSection={<IconSearch size={16} />} />
+                <TextInput 
+                    placeholder="Zoek gebruiker..." 
+                    value={search} 
+                    onChange={(e) => setSearch(e.currentTarget.value)} 
+                    mb="md" 
+                    leftSection={<IconSearch size={16} />} 
+                />
                 <Table.ScrollContainer minWidth={500}>
                     <Table verticalSpacing="md" highlightOnHover>
                         <Table.Thead><Table.Tr><Table.Th>Gebruiker</Table.Th><Table.Th>Rol</Table.Th><Table.Th>Lid sinds</Table.Th><Table.Th>Acties</Table.Th></Table.Tr></Table.Thead>
@@ -166,14 +179,23 @@ function AdminPanel() {
 
             <Modal opened={editModalOpen} onClose={() => setEditModalOpen(false)} title="Gebruiker Aanpassen" centered>
                 <Stack>
-                    <Select label="Rol" data={['user', 'admin']} value={newRole} onChange={setNewRole} />
+                    <Select 
+                        label="Rol" 
+                        data={['user', 'admin']} 
+                        value={newRole} 
+                        onChange={setNewRole} 
+                        color="teal"
+                    />
                     <Paper withBorder p="md" radius="md">
                         <Group justify="space-between">
                             <div><Text fw={500} size="sm">Premium Status</Text><Text size="xs" c="dimmed">Toegang tot slimme functies</Text></div>
                             <Switch checked={isPremium} onChange={(e) => setIsPremium(e.currentTarget.checked)} color="teal" />
                         </Group>
                     </Paper>
-                    <Group justify="flex-end"><Button variant="default" onClick={() => setEditModalOpen(false)}>Annuleren</Button><Button onClick={handleUpdateUser}>Opslaan</Button></Group>
+                    <Group justify="flex-end">
+                        <Button variant="default" onClick={() => setEditModalOpen(false)}>Annuleren</Button>
+                        <Button color="teal" onClick={handleUpdateUser}>Opslaan</Button>
+                    </Group>
                 </Stack>
             </Modal>
         </Container>
