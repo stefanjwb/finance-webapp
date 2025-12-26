@@ -10,10 +10,18 @@ const openai = new OpenAI({
 });
 
 /**
- * Hulpfunctie voor AI-categorisering met verbeterde prompt en robuuste matching
+ * Helper: Slaapfunctie voor vertraging (voorkomt database & AI overbelasting)
  */
-const autoCategorize = async (description) => {
-    if (!description) return 'Onvoorzien';
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Hulpfunctie: Laat AI de transactie analyseren met DEBUG logging en STRENGE schoonmaak regels
+ */
+const analyzeTransaction = async (rawDescription) => {
+    // Fallback: Als alles misgaat, behoud het origineel maar log het wel
+    const fallback = { category: 'Onvoorzien', cleanName: rawDescription || 'Onbekend' };
+    
+    if (!rawDescription) return fallback;
 
     const categoriesList = [
         "Hypotheek of huur", "Energie (gas/licht)", "Water", "Zorgverzekering", 
@@ -31,44 +39,46 @@ const autoCategorize = async (description) => {
 
     try {
         const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini", 
+            model: "gpt-4o-mini",
+            response_format: { type: "json_object" }, 
             messages: [
                 {
                     role: "system",
-                    content: `Je bent een expert in Nederlandse privéprivéfinanciën. 
-                    Categoriseer de transactie in EXACT één van deze categorieën: ${categoriesList.join(", ")}.
+                    content: `Je bent een strikte transactie-schoonmaker.
+                    
+                    JOUW TAAK:
+                    1. **cleanName**: Herschrijf de omschrijving naar een korte, leesbare bedrijfsnaam.
+                       - VERWIJDER: Bedragen, valuta codes (EUR, PHP, USD), wisselkoersen, datums, tijdstippen.
+                       - VERWIJDER: Landcodes (zoals ", PH", "NL"), locaties codes en reeksen van willekeurige cijfers/letters.
+                       - HOUD OVER: Alleen de naam van de winkel/dienst en eventueel de stad.
+                       - VOORBEELD: "SPEEDO BORACAY SPEEDO BORACAY AKLAN, PH 1196.40 PHP" -> "Speedo Boracay Aklan"
+                       - VOORBEELD: "ALBERT HEIJN 1234 AMSTERDAM 12.40 EUR" -> "Albert Heijn"
+                    
+                    2. **category**: Kies EXACT één categorie uit deze lijst: ${categoriesList.join(", ")}.
 
-                    RICHTLIJNEN VOOR MATCHING:
-                    - "Ravellaan" of "Huur" -> Hypotheek of huur
-                    - "Hornbach", "DIY", "Gamma", "Klus" -> Huishoudelijke artikelen
-                    - "Grab", "Bolt", "NS", "Gojek", "Taxi" -> Openbaar vervoer
-                    - "Mart", "Supermarkt", "AH", "Jumbo", "Boodschappen" -> Boodschappen
-                    - "onvz", "zilveren kruis", "zorg" -> Zorgverzekering
-                    - "Tikkie" met eten/drinken omschrijving -> Restaurants en cafébezoek
-
-                    ANTWOORD-REGELS:
-                    1. Antwoord ALLEEN met de categorienaam.
-                    2. Geen extra tekst, geen uitleg, geen aanhalingstekens.`
+                    Geef JSON terug in dit formaat: { "cleanName": "...", "category": "..." }`
                 },
                 {
                     role: "user",
-                    content: `Categoriseer deze bankomschrijving: "${description}"`
+                    content: `Maak schoon en categoriseer: "${rawDescription}"`
                 }
             ],
-            temperature: 0,
-            max_tokens: 30
+            temperature: 0.1, // Laag houden voor consistentie
         });
 
-        // Verwijder ongewenste leestekens voor een schone match
-        let result = response.choices[0].message.content.trim().replace(/[".]/g, "");
+        const result = JSON.parse(response.choices[0].message.content);
         
-        // Zoek een exacte match in de lijst (case-insensitive)
-        const matchedCategory = categoriesList.find(c => c.toLowerCase() === result.toLowerCase());
-        
-        return matchedCategory || 'Onvoorzien';
+        // --- DEBUG LOGGING ---
+        // console.log(`AI: "${rawDescription}" -> "${result.cleanName}"`);
+
+        return {
+            cleanName: result.cleanName || rawDescription,
+            category: result.category || 'Onvoorzien'
+        };
+
     } catch (error) {
-        console.error("AI Fout bij categoriseren:", error);
-        return 'Onvoorzien';
+        console.error("AI ERROR (Fallback):", error.message);
+        return fallback;
     }
 };
 
@@ -170,7 +180,7 @@ const deleteMultipleTransactions = async (req, res) => {
 };
 
 /**
- * 4. Upload en verwerk CSV met AI-categorisering
+ * 4. Upload en verwerk CSV (Sequentieel om crashes te voorkomen)
  */
 const uploadCSV = async (req, res) => {
     const filePath = req.file?.path;
@@ -180,16 +190,17 @@ const uploadCSV = async (req, res) => {
     const results = [];
 
     try {
-        const firstLine = await new Promise((resolve, reject) => {
+        // 1. Detecteer separator
+        const firstLine = await new Promise((resolve) => {
             const stream = fs.createReadStream(filePath, { end: 99 });
             stream.on('data', (chunk) => {
                 resolve(chunk.toString().split('\n')[0]);
                 stream.destroy();
             });
-            stream.on('error', (err) => reject(err));
         });
         const detectedSeparator = firstLine.includes(';') ? ';' : ',';
 
+        // 2. Lees bestand in geheugen
         await new Promise((resolve, reject) => {
             fs.createReadStream(filePath)
                 .pipe(csv({ separator: detectedSeparator }))
@@ -198,39 +209,51 @@ const uploadCSV = async (req, res) => {
                 .on('end', () => resolve());
         });
 
-        const transactionsToCreate = await Promise.all(results.map(async (row) => {
-            // Bunq specifieke mapping
+        console.log(`Start verwerking van ${results.length} rijen (één voor één)...`);
+        
+        const transactionsToCreate = [];
+
+        // 3. Verwerk transacties EÉN VOOR EÉN (geen Promise.all)
+        for (const [index, row] of results.entries()) {
+            // Data ophalen
             const name = row['Name'] || '';
             const rowDesc = row['Description'] || '';
-            const description = `${name} ${rowDesc}`.trim() || 'Bank Import';
+            const rawDescription = `${name} ${rowDesc}`.trim() || 'Bank Import';
             
             const rawAmount = row['Amount'] || row['Bedrag'] || '0';
             const parsedAmount = parseFloat(String(rawAmount).replace(',', '.'));
             
-            if (isNaN(parsedAmount) || parsedAmount === 0) return null;
+            // Skip ongeldige regels
+            if (isNaN(parsedAmount) || parsedAmount === 0) continue;
 
-            // Wacht op AI categorisering
-            const category = await autoCategorize(description);
+            // AI Aanroep (Sequentieel)
+            const analysis = await analyzeTransaction(rawDescription);
 
-            return {
+            // Toevoegen aan lijst
+            transactionsToCreate.push({
                 amount: Math.abs(parsedAmount),
                 type: parsedAmount >= 0 ? 'income' : 'expense',
-                description: description.substring(0, 255),
-                category: category,
+                description: analysis.cleanName.substring(0, 255), 
+                category: analysis.category,
                 date: new Date(row['Date'] || row['Datum'] || new Date()),
                 userId: userId
-            };
-        }));
+            });
 
-        const finalData = transactionsToCreate.filter(t => t !== null);
-        
-        if (finalData.length > 0) {
-            await prisma.transaction.createMany({ data: finalData });
+            // Log de voortgang
+            console.log(`[${index + 1}/${results.length}] Verwerkt: ${analysis.cleanName}`);
+
+            // PAUZE: Wacht 300ms om DB en AI te ontlasten
+            await sleep(300);
+        }
+
+        // 4. Bulk insert in database
+        if (transactionsToCreate.length > 0) {
+            await prisma.transaction.createMany({ data: transactionsToCreate });
         }
 
         res.json({ 
-            message: `Import succesvol: ${finalData.length} transacties toegevoegd.`,
-            count: finalData.length 
+            message: `Import succesvol: ${transactionsToCreate.length} transacties toegevoegd.`,
+            count: transactionsToCreate.length 
         });
 
     } catch (error) {
