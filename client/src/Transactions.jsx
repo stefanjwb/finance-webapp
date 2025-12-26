@@ -2,11 +2,14 @@ import { useEffect, useState, useCallback } from 'react';
 import { 
     Container, Title, Text, Group, Paper, Button, Table, ActionIcon, 
     Modal, TextInput, NumberInput, Select, Stack, SegmentedControl, 
-    Center, Loader, FileButton, Checkbox, ThemeIcon, rem, Progress, Tooltip 
+    Center, Loader, FileButton, Checkbox, ThemeIcon, rem, Progress, Tooltip,
+    Textarea 
 } from '@mantine/core';
 import { 
     IconTrash, IconUpload, IconPlus, IconArrowUpRight, IconArrowDownLeft, 
-    IconFileSpreadsheet, IconEye, IconEyeOff 
+    IconFileSpreadsheet, IconEye, IconEyeOff, IconDeviceFloppy,
+    IconPencil,
+    IconNotes // <--- NIEUW: Importeer het notities icoon
 } from '@tabler/icons-react';
 
 function Transactions() {
@@ -17,11 +20,15 @@ function Transactions() {
     const [modalOpen, setModalOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
     
+    // Edit States
+    const [editModalOpen, setEditModalOpen] = useState(false);
+    const [editingTransaction, setEditingTransaction] = useState(null);
+
     // Upload States
     const [uploadProgress, setUploadProgress] = useState(0);
     const [uploadStatus, setUploadStatus] = useState('');
 
-    // Formulier States
+    // Formulier States (Voor nieuwe transacties)
     const [formType, setFormType] = useState('expense');
     const [formValues, setFormValues] = useState({ description: '', amount: '', category: 'Overig' });
 
@@ -48,15 +55,49 @@ function Transactions() {
         fetchTransactions();
     }, [fetchTransactions]);
 
-    // Hulpfunctie voor het selecteren van een rij
-    const toggleRow = (id) => {
+    const toggleSelection = (id) => {
         setSelectedIds(prev => 
             prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
         );
     };
 
-    // NIEUW: Functie om transactie te verbergen/tonen
-    const toggleVisibility = async (id) => {
+    const handleRowClick = (transaction) => {
+        setEditingTransaction({ ...transaction });
+        setEditModalOpen(true);
+    };
+
+    const handleUpdateSubmit = async () => {
+        const token = localStorage.getItem('token');
+        if (!editingTransaction) return;
+
+        try {
+            const response = await fetch(`${API_URL}/api/transactions/${editingTransaction.id}`, {
+                method: 'PUT',
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify({
+                    description: editingTransaction.description,
+                    amount: editingTransaction.amount,
+                    category: editingTransaction.category,
+                    notes: editingTransaction.notes,
+                    date: editingTransaction.date
+                })
+            });
+
+            if (response.ok) {
+                const updatedTx = await response.json();
+                setTransactions(prev => prev.map(t => t.id === updatedTx.id ? updatedTx : t));
+                setEditModalOpen(false);
+            }
+        } catch (error) {
+            console.error("Fout bij updaten:", error);
+        }
+    };
+
+    const toggleVisibility = async (id, e) => {
+        e.stopPropagation(); 
         const token = localStorage.getItem('token');
         try {
             const response = await fetch(`${API_URL}/api/transactions/${id}/toggle-visibility`, {
@@ -66,7 +107,6 @@ function Transactions() {
             
             if (response.ok) {
                 const updatedTx = await response.json();
-                // Update de lokale state direct zodat je geen refresh nodig hebt
                 setTransactions(prev => prev.map(t => t.id === id ? { ...t, isHidden: updatedTx.isHidden } : t));
             }
         } catch (error) {
@@ -143,12 +183,16 @@ function Transactions() {
         } catch (error) { console.error("Bulk delete error:", error); }
     };
 
-    const handleDelete = async (id) => {
+    const handleDelete = async (id, e) => {
+        if(e) e.stopPropagation();
         const token = localStorage.getItem('token');
         if (!window.confirm("Verwijderen?")) return;
         try {
             const res = await fetch(`${API_URL}/api/transactions/${id}`, { method: 'DELETE', headers: {'Authorization': `Bearer ${token}`} });
-            if (res.ok) setTransactions(prev => prev.filter(t => t.id !== id));
+            if (res.ok) {
+                setTransactions(prev => prev.filter(t => t.id !== id));
+                if(editModalOpen) setEditModalOpen(false);
+            }
         } catch(e) { console.error(e); }
     };
 
@@ -221,25 +265,22 @@ function Transactions() {
                                 <Table.Th>Bedrag</Table.Th>
                                 <Table.Th>Categorie</Table.Th>
                                 <Table.Th>Datum</Table.Th>
-                                <Table.Th></Table.Th>
+                                <Table.Th style={{ width: rem(120) }}></Table.Th>
                             </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
                             {transactions.map((t) => (
                                 <Table.Tr 
                                     key={t.id} 
-                                    onClick={() => toggleRow(t.id)}
                                     style={{ 
                                         backgroundColor: selectedIds.includes(t.id) ? 'var(--mantine-color-teal-0)' : undefined,
-                                        cursor: 'pointer',
-                                        // AANPASSING: Maak de rij deels doorzichtig als hij verborgen is
                                         opacity: t.isHidden ? 0.5 : 1 
                                     }}
                                 >
                                     <Table.Td onClick={(e) => e.stopPropagation()}>
                                         <Checkbox 
                                             checked={selectedIds.includes(t.id)}
-                                            onChange={() => toggleRow(t.id)}
+                                            onChange={() => toggleSelection(t.id)}
                                             color="teal"
                                         />
                                     </Table.Td>
@@ -248,11 +289,18 @@ function Transactions() {
                                             <ThemeIcon color={t.type === 'income' ? 'teal' : 'red'} variant="light" size="sm" radius="xl">
                                                 {t.type === 'income' ? <IconArrowUpRight size={14} /> : <IconArrowDownLeft size={14} />}
                                             </ThemeIcon>
-                                            {/* AANPASSING: Toon doorstreping en "(Verborgen)" label */}
                                             <Stack gap={0}>
-                                                <Text size="sm" fw={500} td={t.isHidden ? 'line-through' : undefined}>
-                                                    {t.description}
-                                                </Text>
+                                                {/* IMPLEMENTATIE OPTIE 1: Groep voor tekst + notitie icoon */}
+                                                <Group gap={5}>
+                                                    <Text size="sm" fw={500} td={t.isHidden ? 'line-through' : undefined}>
+                                                        {t.description}
+                                                    </Text>
+                                                    {t.notes && (
+                                                        <Tooltip label={t.notes} withArrow position="right" multiline w={220}>
+                                                            <IconNotes size={14} color="var(--mantine-color-gray-5)" style={{ cursor: 'help' }} />
+                                                        </Tooltip>
+                                                    )}
+                                                </Group>
                                                 {t.isHidden && <Text size="xs" c="dimmed">(Verborgen)</Text>}
                                             </Stack>
                                         </Group>
@@ -265,21 +313,32 @@ function Transactions() {
                                     <Table.Td><Text size="sm">{t.category}</Text></Table.Td>
                                     <Table.Td><Text size="xs" c="dimmed">{new Date(t.date || t.createdAt).toLocaleDateString()}</Text></Table.Td>
                                     
-                                    {/* Acties Kolom */}
                                     <Table.Td onClick={(e) => e.stopPropagation()}>
-                                        <Group gap="xs">
-                                            {/* NIEUW: Oog icoontje voor toggle */}
+                                        <Group gap="xs" wrap="nowrap">
+                                            <Tooltip label="Bewerken" withArrow>
+                                                <ActionIcon 
+                                                    variant="subtle" 
+                                                    color="gray" 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleRowClick(t);
+                                                    }}
+                                                >
+                                                    <IconPencil size={16} />
+                                                </ActionIcon>
+                                            </Tooltip>
+
                                             <Tooltip label={t.isHidden ? "Zichtbaar maken" : "Verbergen in statistieken"} withArrow>
                                                 <ActionIcon 
                                                     variant="subtle" 
                                                     color={t.isHidden ? "orange" : "gray"} 
-                                                    onClick={() => toggleVisibility(t.id)}
+                                                    onClick={(e) => toggleVisibility(t.id, e)}
                                                 >
                                                     {t.isHidden ? <IconEyeOff size={16} /> : <IconEye size={16} />}
                                                 </ActionIcon>
                                             </Tooltip>
 
-                                            <ActionIcon variant="subtle" color="gray" onClick={() => handleDelete(t.id)}>
+                                            <ActionIcon variant="subtle" color="gray" onClick={(e) => handleDelete(t.id, e)}>
                                                 <IconTrash size={16} />
                                             </ActionIcon>
                                         </Group>
@@ -291,7 +350,6 @@ function Transactions() {
                 )}
             </Paper>
 
-            {/* Modal Components (ongewijzigd) */}
             <Modal opened={modalOpen} onClose={() => setModalOpen(false)} title={<Text fw={700}>Nieuwe Transactie</Text>} centered radius="lg">
                 <Stack>
                     <SegmentedControl 
@@ -306,6 +364,63 @@ function Transactions() {
                     <Select label="Categorie" data={['Boodschappen', 'Huur', 'Salaris', 'Horeca', 'Vervoer', 'Abonnementen', 'Overig']} value={formValues.category} onChange={(val) => setFormValues({...formValues, category: val})} />
                     <Button mt="md" color={formType === 'income' ? 'teal' : 'red'} radius="md" size="md" onClick={handleManualSubmit}>Toevoegen</Button>
                 </Stack>
+            </Modal>
+
+            <Modal 
+                opened={editModalOpen} 
+                onClose={() => setEditModalOpen(false)} 
+                title={<Text fw={700}>Transactie Bewerken</Text>} 
+                centered 
+                radius="lg"
+            >
+                {editingTransaction && (
+                    <Stack>
+                        <TextInput 
+                            label="Omschrijving" 
+                            value={editingTransaction.description} 
+                            onChange={(e) => setEditingTransaction({...editingTransaction, description: e.target.value})} 
+                        />
+                        <NumberInput 
+                            label="Bedrag" 
+                            value={editingTransaction.amount} 
+                            prefix="€ "
+                            decimalScale={2}
+                            fixedDecimalScale
+                            onChange={(val) => setEditingTransaction({...editingTransaction, amount: val})} 
+                        />
+                        <Select 
+                            label="Categorie" 
+                            data={[
+                                'Boodschappen', 'Woonlasten', 'Salaris', 'Horeca', 'Vervoer', 'Abonnementen', 'Overig', 
+                                'Toeslagen', 'Water', 'Verzekeringen', 'Voorgeschoten', 'Reizen', 'Cadeaus',
+                                'Internet en TV', 'Mobiel', 'Belastingen', 'Verzorging', 'Brandstof', 'OV', 
+                                'Auto', 'Huishouden', 'Afhalen', 'Entertainment', 'Sport', 'Shopping', 'Sparen', 'Aflossing'
+                            ]} 
+                            searchable
+                            value={editingTransaction.category} 
+                            onChange={(val) => setEditingTransaction({...editingTransaction, category: val})} 
+                        />
+                        <Textarea 
+                            label="Notities" 
+                            placeholder="Typ hier details, herinneringen of tags..."
+                            minRows={3}
+                            value={editingTransaction.notes || ''} 
+                            onChange={(e) => setEditingTransaction({...editingTransaction, notes: e.target.value})}
+                        />
+                        
+                        <Group justify="space-between" mt="md">
+                            <Button variant="subtle" color="red" size="xs" onClick={() => handleDelete(editingTransaction.id)}>
+                                Verwijderen
+                            </Button>
+                            <Group>
+                                <Button variant="default" onClick={() => setEditModalOpen(false)}>Annuleren</Button>
+                                <Button leftSection={<IconDeviceFloppy size={18} />} color="teal" onClick={handleUpdateSubmit}>
+                                    Opslaan
+                                </Button>
+                            </Group>
+                        </Group>
+                    </Stack>
+                )}
             </Modal>
 
             <Modal 

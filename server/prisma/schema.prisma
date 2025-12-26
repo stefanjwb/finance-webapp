@@ -25,14 +25,14 @@ model User {
 // Het Transactie model (Nieuw voor je Finance App)
 model Transaction {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  amount      Float    // Bedrag
-  type        String   // 'income' of 'expense'
-  category    String   // bijv. 'Boodschappen', 'Huur', 'Salaris'
+  amount      Float
+  type        String
+  category    String
   description String?
+  notes       String?  
   isHidden    Boolean  @default(false)
   date        DateTime @default(now())
   
-  // Koppeling aan User
   userId      String   @db.ObjectId
   user        User     @relation(fields: [userId], references: [id])
 }

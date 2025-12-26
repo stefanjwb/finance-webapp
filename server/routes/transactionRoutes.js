@@ -5,19 +5,23 @@ const multer = require('multer');
 const transactionController = require('../controllers/transactionController');
 const authenticateToken = require('../middleware/authMiddleware');
 
+// Configuratie
 const upload = multer({ dest: 'uploads/' });
 
-// Alle routes in dit bestand zijn beveiligd!
+// Middleware: Alle onderstaande routes vereisen inloggen
 router.use(authenticateToken);
 
-router.get('/', transactionController.getTransactions);
-router.post('/', transactionController.createTransaction);
-router.delete('/:id', transactionController.deleteTransaction);
-router.post('/bulk-delete', transactionController.deleteMultipleTransactions);
+// --- 1. Basis Lijst & Toevoegen ---
+router.get('/', transactionController.getTransactions);      // Haal alles op
+router.post('/', transactionController.createTransaction);   // Handmatig toevoegen
 
-// De nieuwe route voor het oogje (zonder extra middleware argument, want dat gebeurt al hierboven)
-router.put('/:id/toggle-visibility', transactionController.toggleTransactionVisibility);
+// --- 2. Speciale Acties ---
+router.post('/upload', upload.single('file'), transactionController.uploadCSV); // CSV Upload
+router.post('/bulk-delete', transactionController.deleteMultipleTransactions);  // Meerdere verwijderen
 
-router.post('/upload', upload.single('file'), transactionController.uploadCSV);
+// --- 3. Specifieke Transactie Acties (op ID) ---
+router.put('/:id', transactionController.updateTransaction);            // Bewerken (Update) [NIEUW]
+router.delete('/:id', transactionController.deleteTransaction);         // Verwijderen
+router.put('/:id/toggle-visibility', transactionController.toggleTransactionVisibility); // Oogje (Toggle)
 
 module.exports = router;

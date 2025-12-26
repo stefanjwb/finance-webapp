@@ -171,6 +171,36 @@ const toggleTransactionVisibility = async (req, res) => {
     }
 };
 
+// 5. NIEUW: Transactie bewerken
+const updateTransaction = async (req, res) => {
+    const { id } = req.params;
+    const { amount, category, description, date, notes } = req.body;
+    const userId = req.user.userId;
+
+    try {
+        // Check eerst of de transactie van deze gebruiker is
+        const existing = await prisma.transaction.findUnique({ where: { id } });
+        if (!existing || existing.userId !== userId) {
+            return res.status(403).json({ error: "Geen toegang" });
+        }
+
+        const updated = await prisma.transaction.update({
+            where: { id },
+            data: {
+                amount: amount ? parseFloat(amount) : existing.amount,
+                category: category || existing.category,
+                description: description || existing.description,
+                date: date ? new Date(date) : existing.date,
+                notes: notes || existing.notes
+            }
+        });
+        res.json(updated);
+    } catch (error) {
+        console.error("Update fout:", error);
+        res.status(500).json({ error: "Kon transactie niet updaten" });
+    }
+};
+
 /**
  * UPLOAD FUNCTIE
  */
@@ -325,5 +355,6 @@ module.exports = {
     deleteTransaction, 
     deleteMultipleTransactions, 
     uploadCSV,
-    toggleTransactionVisibility 
+    toggleTransactionVisibility,
+    updateTransaction
 };
