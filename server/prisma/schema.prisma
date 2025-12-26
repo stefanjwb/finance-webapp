@@ -29,6 +29,7 @@ model Transaction {
   type        String   // 'income' of 'expense'
   category    String   // bijv. 'Boodschappen', 'Huur', 'Salaris'
   description String?
+  isHidden    Boolean  @default(false)
   date        DateTime @default(now())
   
   // Koppeling aan User

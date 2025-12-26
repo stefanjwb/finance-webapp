@@ -10,19 +10,18 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const BATCH_SIZE = 20;
 
 // --- GRATIS LOKALE SCHOONMAAK FUNCTIE ---
-// Dit vervangt het dure AI-werk voor de naam bij gratis gebruikers.
 const cleanNameLocal = (rawDescription) => {
     if (!rawDescription) return "Onbekend";
     
     return rawDescription
-        .replace(/\d{2}-\d{2}-\d{4}/g, '') // Datums weg
-        .replace(/\d{4,}/g, '')            // Lange cijferreeksen weg
-        .replace(/EUR/g, '')               // Valuta weg
-        .replace(/Passnr[\s\S]*/gi, '')    // Pasnummers weg
-        .replace(/\s+/g, ' ')              // Dubbele spaties weg
+        .replace(/\d{2}-\d{2}-\d{4}/g, '')
+        .replace(/\d{4,}/g, '')
+        .replace(/EUR/g, '')
+        .replace(/Passnr[\s\S]*/gi, '')
+        .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase()
-        .replace(/\b\w/g, s => s.toUpperCase()); // Title Case
+        .replace(/\b\w/g, s => s.toUpperCase());
 };
 
 // --- STATIC KEYWORDS (GRATIS) ---
@@ -71,10 +70,6 @@ const CATEGORIES_LIST = [
     "Abonnementen", "Sport", "Shopping", "Sparen", "Aflossing", "Bankkosten", "Salaris", "Onvoorzien"
 ];
 
-/**
- * 1. GOEDKOPE AI (GRATIS GEBRUIKERS)
- * Vraagt alleen om categorie. Output tokens zijn minimaal.
- */
 const analyzeCategoryOnly = async (rawDescription) => {
     try {
         const response = await openai.chat.completions.create({
@@ -96,10 +91,6 @@ const analyzeCategoryOnly = async (rawDescription) => {
     }
 };
 
-/**
- * 2. LUXE AI (PREMIUM GEBRUIKERS)
- * Vraagt om categorie EN een mooie naam. Kost iets meer tokens.
- */
 const analyzePremium = async (rawDescription) => {
     try {
         const response = await openai.chat.completions.create({
@@ -115,7 +106,7 @@ const analyzePremium = async (rawDescription) => {
                 },
                 { role: "user", content: rawDescription }
             ],
-            temperature: 0.1, // Iets creatiever voor de naam
+            temperature: 0.1,
         });
         return JSON.parse(response.choices[0].message.content);
     } catch (error) {
@@ -152,8 +143,36 @@ const deleteMultipleTransactions = async (req, res) => {
     catch (e) { res.status(500).json({ error: "Fout" }); }
 };
 
+// --- NIEUWE FUNCTIE: TRANSACTIE VERBERGEN/TONEN ---
+const toggleTransactionVisibility = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+
+        // 1. Zoek de transactie om te controleren of deze van de user is
+        const transaction = await prisma.transaction.findUnique({
+            where: { id: id }
+        });
+
+        if (!transaction || transaction.userId !== userId) {
+            return res.status(404).json({ error: "Transactie niet gevonden of geen toegang." });
+        }
+
+        // 2. Update de status
+        const updatedTransaction = await prisma.transaction.update({
+            where: { id: id },
+            data: { isHidden: !transaction.isHidden }
+        });
+
+        res.json(updatedTransaction);
+    } catch (error) {
+        console.error("Fout bij wijzigen zichtbaarheid:", error);
+        res.status(500).json({ error: "Serverfout" });
+    }
+};
+
 /**
- * DE ULTRA-ZUINIGE UPLOAD FUNCTIE (MET PREMIUM CHECK)
+ * UPLOAD FUNCTIE
  */
 const uploadCSV = async (req, res) => {
     const filePath = req.file?.path;
@@ -164,13 +183,11 @@ const uploadCSV = async (req, res) => {
     const aiCache = new Map();
 
     try {
-        // 1. Check PREMIUM Status van gebruiker
         const user = await prisma.user.findUnique({ where: { id: userId } });
         const isPremium = user?.isPremium || false;
         
         console.log(`Import gestart voor ${user.username} (${isPremium ? 'PREMIUM' : 'GRATIS'})`);
 
-        // 2. CSV Inlezen
         const firstLine = await new Promise((resolve) => {
             const stream = fs.createReadStream(filePath, { end: 100 });
             stream.on('data', (c) => { resolve(c.toString().split('\n')[0]); stream.destroy(); });
@@ -181,7 +198,6 @@ const uploadCSV = async (req, res) => {
             fs.createReadStream(filePath).pipe(csv({ separator })).on('data', d => results.push(d)).on('error', reject).on('end', resolve);
         });
 
-        // 3. Historie en Hashes ophalen
         const history = await prisma.transaction.findMany({
             where: { userId },
             select: { description: true, category: true },
@@ -214,27 +230,22 @@ const uploadCSV = async (req, res) => {
                 const date = new Date(row['Date'] || row['Datum'] || new Date());
                 const type = amount >= 0 ? 'income' : 'expense';
 
-                // Initialiseer variabelen
                 let finalName = null;
                 let finalCategory = null;
 
-                // --- STAP 1: CHECK STATIC KEYWORDS (GRATIS) ---
                 for (const [key, val] of Object.entries(STATIC_KEYWORDS)) {
                     if (lowerDesc.includes(key)) {
-                        finalName = val.cleanName; // Mooie hardcoded naam
+                        finalName = val.cleanName;
                         finalCategory = val.category;
                         stats.static++;
                         break;
                     }
                 }
 
-                // --- STAP 2: CHECK HISTORIE (GRATIS) ---
                 if (!finalCategory) {
                     for (const [histName, histCat] of historyMap) {
                         if (lowerDesc.includes(histName)) {
                             finalCategory = histCat;
-                            // Als de gebruiker premium is, willen we misschien toch een mooiere naam? 
-                            // Voor nu nemen we de historie naam over als die er is, anders regex.
                             if (!finalName) finalName = isPremium ? (histName.charAt(0).toUpperCase() + histName.slice(1)) : cleanNameLocal(rawDesc);
                             stats.history++;
                             break;
@@ -242,41 +253,31 @@ const uploadCSV = async (req, res) => {
                     }
                 }
 
-                // --- STAP 3: AI (BETAALD) ---
-                // Hier splitsen we tussen Premium en Gratis logica
                 if (!finalCategory) {
                     if (aiCache.has(rawDesc)) {
-                        // Cache Hit (voor beide types)
                         const cached = aiCache.get(rawDesc);
                         finalCategory = cached.category;
                         finalName = cached.cleanName || cleanNameLocal(rawDesc);
                         stats.ai_cache++;
                     } else {
-                        // AI Call nodig
                         if (isPremium) {
-                            // PREMIUM: Vraag naam + categorie
                             const result = await analyzePremium(rawDesc);
                             finalName = result.cleanName;
                             finalCategory = result.category;
-                            
                             aiCache.set(rawDesc, result);
-                            stats.ai_cost++; // Duurdere call
+                            stats.ai_cost++;
                         } else {
-                            // GRATIS: Vraag alleen categorie
                             const result = await analyzeCategoryOnly(rawDesc);
                             finalCategory = result.category;
-                            finalName = cleanNameLocal(rawDesc); // Doe naam lokaal
-                            
+                            finalName = cleanNameLocal(rawDesc);
                             aiCache.set(rawDesc, { ...result, cleanName: finalName });
-                            stats.ai_cost++; // Goedkopere call
+                            stats.ai_cost++;
                         }
                     }
                 } else if (!finalName) {
-                    // Als we wel een categorie hebben (uit historie) maar nog geen naam
                     finalName = cleanNameLocal(rawDesc);
                 }
 
-                // --- STAP 4: DEDUPLICATIE ---
                 const hash = createTransactionHash(date, Math.abs(amount), finalName);
                 if (existingHashes.has(hash)) {
                     stats.skipped++;
@@ -290,7 +291,8 @@ const uploadCSV = async (req, res) => {
                     description: finalName.substring(0, 255),
                     category: finalCategory,
                     date,
-                    userId
+                    userId,
+                    isHidden: false // Standaard zichtbaar
                 };
             });
 
@@ -317,4 +319,11 @@ const uploadCSV = async (req, res) => {
     }
 };
 
-module.exports = { getTransactions, createTransaction, deleteTransaction, deleteMultipleTransactions, uploadCSV };
+module.exports = { 
+    getTransactions, 
+    createTransaction, 
+    deleteTransaction, 
+    deleteMultipleTransactions, 
+    uploadCSV,
+    toggleTransactionVisibility 
+};

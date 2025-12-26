@@ -2,11 +2,11 @@ import { useEffect, useState, useCallback } from 'react';
 import { 
     Container, Title, Text, Group, Paper, Button, Table, ActionIcon, 
     Modal, TextInput, NumberInput, Select, Stack, SegmentedControl, 
-    Center, Loader, FileButton, Checkbox, ThemeIcon, rem, Progress 
+    Center, Loader, FileButton, Checkbox, ThemeIcon, rem, Progress, Tooltip 
 } from '@mantine/core';
 import { 
     IconTrash, IconUpload, IconPlus, IconArrowUpRight, IconArrowDownLeft, 
-    IconFileSpreadsheet 
+    IconFileSpreadsheet, IconEye, IconEyeOff 
 } from '@tabler/icons-react';
 
 function Transactions() {
@@ -53,6 +53,25 @@ function Transactions() {
         setSelectedIds(prev => 
             prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
         );
+    };
+
+    // NIEUW: Functie om transactie te verbergen/tonen
+    const toggleVisibility = async (id) => {
+        const token = localStorage.getItem('token');
+        try {
+            const response = await fetch(`${API_URL}/api/transactions/${id}/toggle-visibility`, {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (response.ok) {
+                const updatedTx = await response.json();
+                // Update de lokale state direct zodat je geen refresh nodig hebt
+                setTransactions(prev => prev.map(t => t.id === id ? { ...t, isHidden: updatedTx.isHidden } : t));
+            }
+        } catch (error) {
+            console.error("Fout bij toggelen:", error);
+        }
     };
 
     const handleCSVUpload = (file) => {
@@ -209,17 +228,14 @@ function Transactions() {
                             {transactions.map((t) => (
                                 <Table.Tr 
                                     key={t.id} 
-                                    onClick={() => toggleRow(t.id)} // Hele rij klikbaar
+                                    onClick={() => toggleRow(t.id)}
                                     style={{ 
                                         backgroundColor: selectedIds.includes(t.id) ? 'var(--mantine-color-teal-0)' : undefined,
-                                        cursor: 'pointer' 
+                                        cursor: 'pointer',
+                                        // AANPASSING: Maak de rij deels doorzichtig als hij verborgen is
+                                        opacity: t.isHidden ? 0.5 : 1 
                                     }}
                                 >
-                                    {/* BELANGRIJK: We voegen onClick={(e) => e.stopPropagation()} toe aan de Table.Td
-                                        van de Checkbox en de Delete knop.
-                                        Dit zorgt ervoor dat klikken op de checkbox NIET doorgegeven wordt aan de rij (Table.Tr).
-                                        Zo voorkomen we conflicten en crashes.
-                                    */}
                                     <Table.Td onClick={(e) => e.stopPropagation()}>
                                         <Checkbox 
                                             checked={selectedIds.includes(t.id)}
@@ -232,7 +248,13 @@ function Transactions() {
                                             <ThemeIcon color={t.type === 'income' ? 'teal' : 'red'} variant="light" size="sm" radius="xl">
                                                 {t.type === 'income' ? <IconArrowUpRight size={14} /> : <IconArrowDownLeft size={14} />}
                                             </ThemeIcon>
-                                            <Text size="sm" fw={500}>{t.description}</Text>
+                                            {/* AANPASSING: Toon doorstreping en "(Verborgen)" label */}
+                                            <Stack gap={0}>
+                                                <Text size="sm" fw={500} td={t.isHidden ? 'line-through' : undefined}>
+                                                    {t.description}
+                                                </Text>
+                                                {t.isHidden && <Text size="xs" c="dimmed">(Verborgen)</Text>}
+                                            </Stack>
                                         </Group>
                                     </Table.Td>
                                     <Table.Td>
@@ -242,10 +264,25 @@ function Transactions() {
                                     </Table.Td>
                                     <Table.Td><Text size="sm">{t.category}</Text></Table.Td>
                                     <Table.Td><Text size="xs" c="dimmed">{new Date(t.date || t.createdAt).toLocaleDateString()}</Text></Table.Td>
+                                    
+                                    {/* Acties Kolom */}
                                     <Table.Td onClick={(e) => e.stopPropagation()}>
-                                        <ActionIcon variant="subtle" color="gray" onClick={() => handleDelete(t.id)}>
-                                            <IconTrash size={16} />
-                                        </ActionIcon>
+                                        <Group gap="xs">
+                                            {/* NIEUW: Oog icoontje voor toggle */}
+                                            <Tooltip label={t.isHidden ? "Zichtbaar maken" : "Verbergen in statistieken"} withArrow>
+                                                <ActionIcon 
+                                                    variant="subtle" 
+                                                    color={t.isHidden ? "orange" : "gray"} 
+                                                    onClick={() => toggleVisibility(t.id)}
+                                                >
+                                                    {t.isHidden ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                                                </ActionIcon>
+                                            </Tooltip>
+
+                                            <ActionIcon variant="subtle" color="gray" onClick={() => handleDelete(t.id)}>
+                                                <IconTrash size={16} />
+                                            </ActionIcon>
+                                        </Group>
                                     </Table.Td>
                                 </Table.Tr>
                             ))}

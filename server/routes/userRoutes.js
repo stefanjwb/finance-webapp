@@ -4,7 +4,7 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 const authMiddleware = require('../middleware/authMiddleware');
 
-// --- NIEUW: Middleware om te checken of iemand admin is ---
+// --- Middleware om te checken of iemand admin is ---
 const requireAdmin = (req, res, next) => {
     // authMiddleware heeft req.user al gevuld met de data uit het token
     if (req.user && req.user.role === 'admin') {
@@ -13,6 +13,11 @@ const requireAdmin = (req, res, next) => {
         res.status(403).json({ error: "Geen toegang: Alleen voor beheerders." });
     }
 };
+
+// NIEUW: Route voor eigen profiel (voor Premium check)
+// Deze moet BOVEN de /:id routes staan, anders denkt Express dat 'me' een ID is.
+// Geen requireAdmin hier, want iedereen mag zijn eigen info zien.
+router.get('/me', authMiddleware, userController.getUserProfile);
 
 // GET /api/users -> Haal lijst op (Alleen voor admins)
 router.get('/', authMiddleware, requireAdmin, userController.getAllUsers);

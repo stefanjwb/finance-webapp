@@ -2,7 +2,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// 1. Alle gebruikers ophalen
+// 1. Alle gebruikers ophalen (Alleen voor admins)
 const getAllUsers = async (req, res) => {
     try {
         const users = await prisma.user.findMany({
@@ -11,7 +11,7 @@ const getAllUsers = async (req, res) => {
                 username: true,
                 email: true,
                 role: true,
-                isPremium: true, // <--- NIEUW: Haal premium status op
+                isPremium: true,
                 createdAt: true
             }
         });
@@ -22,7 +22,7 @@ const getAllUsers = async (req, res) => {
     }
 };
 
-// 2. Een gebruiker verwijderen
+// 2. Een gebruiker verwijderen (Alleen voor admins)
 const deleteUser = async (req, res) => {
     const { id } = req.params;
 
@@ -37,7 +37,7 @@ const deleteUser = async (req, res) => {
     }
 };
 
-// 3. Gebruiker updaten (Rol én Premium status)
+// 3. Gebruiker updaten (Rol én Premium status) (Alleen voor admins)
 const updateUser = async (req, res) => {
     const { id } = req.params;
     const { role, isPremium } = req.body; 
@@ -47,14 +47,14 @@ const updateUser = async (req, res) => {
             where: { id: id },
             data: { 
                 role: role,
-                isPremium: Boolean(isPremium) // Zorg dat het opgeslagen wordt
+                isPremium: Boolean(isPremium) 
             },
             select: { 
                 id: true, 
                 username: true, 
                 email: true, 
                 role: true,
-                isPremium: true // Stuur de nieuwe status terug naar frontend
+                isPremium: true 
             } 
         });
         res.json(updatedUser);
@@ -64,5 +64,28 @@ const updateUser = async (req, res) => {
     }
 };
 
-// Let op: updateUserRole is hernoemd naar updateUser
-module.exports = { getAllUsers, deleteUser, updateUser };
+// 4. NIEUW: Haal profiel op van de ingelogde gebruiker (Voor Dashboard premium check)
+const getUserProfile = async (req, res) => {
+    try {
+        // req.user.userId komt uit de authenticateToken middleware
+        const user = await prisma.user.findUnique({
+            where: { id: req.user.userId },
+            select: { 
+                id: true, 
+                username: true, 
+                email: true, 
+                isPremium: true, 
+                role: true 
+            }
+        });
+        
+        if (!user) return res.status(404).json({ error: "Gebruiker niet gevonden" });
+        
+        res.json(user);
+    } catch (error) {
+        console.error("Profiel fout:", error);
+        res.status(500).json({ error: "Kon profiel niet ophalen" });
+    }
+};
+
+module.exports = { getAllUsers, deleteUser, updateUser, getUserProfile };

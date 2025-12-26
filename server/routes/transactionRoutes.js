@@ -15,6 +15,9 @@ router.post('/', transactionController.createTransaction);
 router.delete('/:id', transactionController.deleteTransaction);
 router.post('/bulk-delete', transactionController.deleteMultipleTransactions);
 
+// De nieuwe route voor het oogje (zonder extra middleware argument, want dat gebeurt al hierboven)
+router.put('/:id/toggle-visibility', transactionController.toggleTransactionVisibility);
+
 router.post('/upload', upload.single('file'), transactionController.uploadCSV);
 
 module.exports = router;
