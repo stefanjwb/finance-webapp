@@ -4,14 +4,23 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 const authMiddleware = require('../middleware/authMiddleware');
 
-// GET /api/users -> Haal lijst op
-router.get('/', authMiddleware, userController.getAllUsers);
+// --- NIEUW: Middleware om te checken of iemand admin is ---
+const requireAdmin = (req, res, next) => {
+    // authMiddleware heeft req.user al gevuld met de data uit het token
+    if (req.user && req.user.role === 'admin') {
+        next(); // Gebruiker is admin, ga door naar de controller
+    } else {
+        res.status(403).json({ error: "Geen toegang: Alleen voor beheerders." });
+    }
+};
 
-// DELETE /api/users/:id -> Verwijder specifieke gebruiker
-router.delete('/:id', authMiddleware, userController.deleteUser);
+// GET /api/users -> Haal lijst op (Alleen voor admins)
+router.get('/', authMiddleware, requireAdmin, userController.getAllUsers);
 
-// PUT /api/users/:id/role -> Pas gebruiker aan (Rol & Premium)
-// LET OP: Gebruik hier 'updateUser' omdat we de functie in de controller hebben hernoemd
-router.put('/:id/role', authMiddleware, userController.updateUser);
+// DELETE /api/users/:id -> Verwijder specifieke gebruiker (Alleen voor admins)
+router.delete('/:id', authMiddleware, requireAdmin, userController.deleteUser);
+
+// PUT /api/users/:id/role -> Pas gebruiker aan (Rol & Premium) (Alleen voor admins)
+router.put('/:id/role', authMiddleware, requireAdmin, userController.updateUser);
 
 module.exports = router;
