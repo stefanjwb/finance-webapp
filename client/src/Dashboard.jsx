@@ -143,7 +143,7 @@ function Dashboard() {
                                                 <div>
                                                     <Tooltip label={t.description} openDelay={500} withArrow>
                                                         <Text size="sm" fw={500} style={{ cursor: 'default' }}>
-                                                            {t.description.length > 20 ? `${t.description.substring(0, 20)}...` : t.description}
+                                                            {t.description.length > 40 ? `${t.description.substring(0, 20)}...` : t.description}
                                                         </Text>
                                                     </Tooltip>
                                                     <Text size="xs" c="dimmed">{t.category}</Text>
