@@ -67,20 +67,15 @@ function Dashboard() {
         } catch(e) { console.error(e); }
     };
 
-    // --- BEREKENINGEN (AANGEPAST) ---
-
-    // 1. Filter eerst de verborgen transacties eruit
-    // 'activeTransactions' wordt gebruikt voor alle berekeningen en grafieken
+    // --- BEREKENINGEN ---
     const activeTransactions = useMemo(() => {
         return transactions.filter(t => !t.isHidden);
     }, [transactions]);
 
-    // 2. Bereken totalen op basis van de GEFILTERDE lijst
     const totalIncome = activeTransactions.filter(t => t.type === 'income').reduce((acc, curr) => acc + curr.amount, 0);
     const totalExpense = activeTransactions.filter(t => t.type === 'expense').reduce((acc, curr) => acc + curr.amount, 0);
     const balance = totalIncome - totalExpense;
 
-    // 3. Data voor Donut Chart (op basis van GEFILTERDE lijst)
     const donutData = useMemo(() => {
         const categories = {};
         activeTransactions.filter(t => t.type === 'expense').forEach(t => {
@@ -98,52 +93,56 @@ function Dashboard() {
     }, [activeTransactions]);
 
     return (
-        <Container size="lg" py="xl">
-            <Group justify="space-between" mb="xl">
+        // AANPASSING 1: py="xl" -> py="md" (Minder witruimte boven/onder)
+        <Container size="lg" py="md">
+            {/* AANPASSING 2: mb="xl" -> mb="md" */}
+            <Group justify="space-between" mb="md">
                 <div>
                     <Title order={2} fw={800}>Overzicht</Title>
-                    <Text c="dimmed">Welkom terug, {user?.username}.</Text>
+                    <Text c="dimmed" size="sm">Welkom terug, {user?.username}.</Text>
                 </div>
-                <Button leftSection={<IconPlus size={20} />} color="teal" radius="md" onClick={() => setModalOpen(true)}>
+                <Button leftSection={<IconPlus size={18} />} color="teal" radius="md" size="sm" onClick={() => setModalOpen(true)}>
                     Snel toevoegen
                 </Button>
             </Group>
 
-            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="lg" mb="xl">
+            {/* AANPASSING 3: mb="xl" -> mb="md" */}
+            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md" mb="md">
                 <CardStat title="Huidig Saldo" amount={balance} icon={IconWallet} color="blue" isTotal />
                 <CardStat title="Inkomsten" amount={totalIncome} icon={IconArrowUpRight} color="teal" />
                 <CardStat title="Uitgaven" amount={totalExpense} icon={IconArrowDownLeft} color="red" />
             </SimpleGrid>
 
             {/* Transacties Links, Donut Rechts */}
-            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
                 
                 {/* 1. Recente Activiteit */}
-                <Paper shadow="xs" radius="lg" p="xl" withBorder>
-                    <Group justify="space-between" mb="lg">
+                {/* AANPASSING 4: p="xl" -> p="md" */}
+                <Paper shadow="xs" radius="lg" p="md" withBorder>
+                    <Group justify="space-between" mb="sm">
                         <Title order={4}>Recente Activiteit</Title>
-                        <Button variant="subtle" color="teal" rightSection={<IconArrowRight size={16}/>} onClick={() => navigate('/transactions')}>
+                        <Button variant="subtle" color="teal" size="xs" rightSection={<IconArrowRight size={14}/>} onClick={() => navigate('/transactions')}>
                             Alles
                         </Button>
                     </Group>
 
                     {loading ? (
-                        <Center h={300}><Loader color="teal" /></Center>
+                        <Center h={200}><Loader color="teal" /></Center>
                     ) : (
-                        <Table verticalSpacing="sm">
+                        // Vertical spacing="xs" voor compactere tabel
+                        <Table verticalSpacing="xs"> 
                             <Table.Tbody>
-                                {/* We gebruiken hier ook activeTransactions zodat verborgen items het dashboard niet vervuilen */}
                                 {activeTransactions.slice(0, 5).map((t) => (
                                     <Table.Tr key={t.id}>
                                         <Table.Td>
-                                            <Group gap="sm">
+                                            <Group gap="xs">
                                                 <ThemeIcon color={t.type === 'income' ? 'teal' : 'red'} variant="light" size="md" radius="xl">
                                                     {t.type === 'income' ? <IconArrowUpRight size={16} /> : <IconArrowDownLeft size={16} />}
                                                 </ThemeIcon>
                                                 <div>
                                                     <Tooltip label={t.description} openDelay={500} withArrow>
                                                         <Text size="sm" fw={500} style={{ cursor: 'default' }}>
-                                                            {t.description.length > 40 ? `${t.description.substring(0, 20)}...` : t.description}
+                                                            {t.description.length > 35 ? `${t.description.substring(0, 30)}...` : t.description}
                                                         </Text>
                                                     </Tooltip>
                                                     <Text size="xs" c="dimmed">{t.category}</Text>
@@ -164,27 +163,28 @@ function Dashboard() {
                     )}
                 </Paper>
 
-                {/* 2. DONUT CHART & SCROLLABLE LIJST */}
-                <Paper shadow="xs" radius="lg" p="xl" withBorder>
-                    <Group mb="lg">
+                {/* 2. DONUT CHART */}
+                {/* AANPASSING 5: p="xl" -> p="md" */}
+                <Paper shadow="xs" radius="lg" p="md" withBorder>
+                    <Group mb="sm">
                         <IconChartPie size={20} color="gray" />
                         <Title order={4}>Uitgaven per Categorie</Title>
                     </Group>
 
                     {loading ? (
-                        <Center h={300}><Loader color="teal" /></Center>
+                        <Center h={200}><Loader color="teal" /></Center>
                     ) : donutData.length > 0 ? (
-                        <Stack gap="xl">
-                            {/* De Donut zelf */}
+                        <Stack gap="md">
                             <Center>
-                                <div style={{ position: 'relative', width: 180, height: 180 }}>
+                                {/* Donut iets verkleind naar 160px */}
+                                <div style={{ position: 'relative', width: 160, height: 160 }}>
                                     <DonutChart 
                                         data={donutData} 
                                         withLabels={false} 
                                         withTooltip
                                         tooltipDataSource="segment"
-                                        size={180} 
-                                        thickness={18} 
+                                        size={160} 
+                                        thickness={16} 
                                         paddingAngle={3}
                                         valueFormatter={(val) => `€ ${val.toFixed(2)}`} 
                                     />
@@ -198,21 +198,12 @@ function Dashboard() {
                                 </div>
                             </Center>
 
-                            {/* Lijst met gekleurde bolletjes */}
-                            <ScrollArea h={180} type="auto" offsetScrollbars>
-                                <Stack gap="sm" pr="sm"> 
+                            <ScrollArea h={140} type="auto" offsetScrollbars>
+                                <Stack gap="xs" pr="sm"> 
                                     {donutData.map(d => (
                                         <Group key={d.name} justify="space-between" wrap="nowrap">
                                             <Group gap="xs">
-                                                <Box 
-                                                    w={10} 
-                                                    h={10} 
-                                                    bg={d.color} 
-                                                    style={{ 
-                                                        borderRadius: '50%', 
-                                                        flexShrink: 0 
-                                                    }} 
-                                                />
+                                                <Box w={8} h={8} bg={d.color} style={{ borderRadius: '50%', flexShrink: 0 }} />
                                                 <Text size="sm" c="dimmed" truncate>{d.name}</Text>
                                             </Group>
                                             <Text size="sm" fw={600} style={{ whiteSpace: 'nowrap' }}>
@@ -224,7 +215,7 @@ function Dashboard() {
                             </ScrollArea>
                         </Stack>
                     ) : (
-                        <Center h={300}><Text c="dimmed">Geen uitgaven om weer te geven.</Text></Center>
+                        <Center h={200}><Text c="dimmed">Geen uitgaven.</Text></Center>
                     )}
                 </Paper>
             </SimpleGrid>
@@ -250,17 +241,18 @@ function Dashboard() {
 }
 
 function CardStat({ title, amount, icon: Icon, color, isTotal }) {
+    // AANPASSING 6: p="xl" -> p="md"
     return (
-        <Paper withBorder p="xl" radius="lg" shadow="sm">
+        <Paper withBorder p="md" radius="lg" shadow="sm">
             <Group justify="space-between">
                 <div>
                     <Text size="xs" c="dimmed" fw={700} tt="uppercase" style={{ letterSpacing: rem(1) }}>{title}</Text>
-                    <Text fw={900} size="xl" mt="xs" c={isTotal ? (amount >= 0 ? 'teal' : 'red') : 'dark'}>
+                    <Text fw={900} size="xl" mt={4} c={isTotal ? (amount >= 0 ? 'teal' : 'red') : 'dark'}>
                         € {amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                 </div>
-                <ThemeIcon color={color} variant="light" size={48} radius="md">
-                    <Icon style={{ width: rem(26), height: rem(26) }} />
+                <ThemeIcon color={color} variant="light" size={42} radius="md">
+                    <Icon style={{ width: rem(24), height: rem(24) }} />
                 </ThemeIcon>
             </Group>
         </Paper>

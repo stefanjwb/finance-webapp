@@ -9,7 +9,6 @@ datasource db {
 
 // Het Gebruiker model
 model User {
-  // MongoDB ID specificatie:
   id            String   @id @default(auto()) @map("_id") @db.ObjectId
   username      String   @unique
   email         String   @unique
@@ -18,11 +17,12 @@ model User {
   isPremium     Boolean  @default(false)
   createdAt     DateTime @default(now())
   
-  // Relatie: Een gebruiker heeft meerdere transacties
+  // Relaties
   transactions  Transaction[]
+  budgets       Budget[]      // <--- Deze regel is toegevoegd voor de relatie
 }
 
-// Het Transactie model (Nieuw voor je Finance App)
+// Het Transactie model
 model Transaction {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   amount      Float
@@ -35,4 +35,19 @@ model Transaction {
   
   userId      String   @db.ObjectId
   user        User     @relation(fields: [userId], references: [id])
+}
+
+// Het Budget model (Aangepast voor MongoDB)
+model Budget {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  category  String
+  amount    Float
+  type      String   @default("variable") // "fixed" of "variable"
+  
+  // Relatie velden moeten String + @db.ObjectId zijn in MongoDB
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
