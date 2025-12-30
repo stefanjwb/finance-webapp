@@ -1,16 +1,18 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { 
     Container, Title, Text, Group, Paper, Button, Table, ActionIcon, 
     Modal, TextInput, NumberInput, Select, Stack, SegmentedControl, 
     Center, Loader, FileButton, Checkbox, ThemeIcon, rem, Progress, Tooltip,
-    Textarea 
+    Textarea, SimpleGrid, CloseButton, FileInput, // <--- FileInput weer toegevoegd
+    Affix, Transition 
 } from '@mantine/core';
 import { 
     IconTrash, IconUpload, IconPlus, IconArrowUpRight, IconArrowDownLeft, 
     IconFileSpreadsheet, IconEye, IconEyeOff, IconDeviceFloppy,
-    IconPencil,
-    IconNotes // <--- NIEUW: Importeer het notities icoon
+    IconPencil, IconNotes, IconDots,
+    IconSearch, IconFilter, IconX, IconPaperclip 
 } from '@tabler/icons-react';
+import { Menu } from '@mantine/core';
 
 function Transactions() {
     // Bestaande States
@@ -20,15 +22,22 @@ function Transactions() {
     const [modalOpen, setModalOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
     
+    // Search & Filter States
+    const [searchQuery, setSearchQuery] = useState('');
+    const [filterType, setFilterType] = useState('all'); 
+    const [filterCategory, setFilterCategory] = useState(null);
+
     // Edit States
     const [editModalOpen, setEditModalOpen] = useState(false);
     const [editingTransaction, setEditingTransaction] = useState(null);
+    const [editFile, setEditFile] = useState(null); // <--- State voor bestand hersteld
+    const [saving, setSaving] = useState(false); // <--- State voor opslaan laadicoon
 
     // Upload States
     const [uploadProgress, setUploadProgress] = useState(0);
     const [uploadStatus, setUploadStatus] = useState('');
 
-    // Formulier States (Voor nieuwe transacties)
+    // Formulier States
     const [formType, setFormType] = useState('expense');
     const [formValues, setFormValues] = useState({ description: '', amount: '', category: 'Overig' });
 
@@ -55,6 +64,29 @@ function Transactions() {
         fetchTransactions();
     }, [fetchTransactions]);
 
+    // --- FILTERS ---
+    const uniqueCategories = useMemo(() => {
+        const cats = new Set(transactions.map(t => t.category).filter(Boolean));
+        return [...cats].sort();
+    }, [transactions]);
+
+    const filteredTransactions = useMemo(() => {
+        return transactions.filter(t => {
+            const matchesSearch = t.description.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                  (t.notes && t.notes.toLowerCase().includes(searchQuery.toLowerCase()));
+            const matchesType = filterType === 'all' ? true : t.type === filterType;
+            const matchesCategory = filterCategory ? t.category === filterCategory : true;
+            return matchesSearch && matchesType && matchesCategory;
+        });
+    }, [transactions, searchQuery, filterType, filterCategory]);
+
+    const clearFilters = () => {
+        setSearchQuery('');
+        setFilterType('all');
+        setFilterCategory(null);
+    };
+    const hasActiveFilters = searchQuery !== '' || filterType !== 'all' || filterCategory !== null;
+
     const toggleSelection = (id) => {
         setSelectedIds(prev => 
             prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
@@ -63,41 +95,67 @@ function Transactions() {
 
     const handleRowClick = (transaction) => {
         setEditingTransaction({ ...transaction });
+        setEditFile(null); // Reset bestand bij openen
         setEditModalOpen(true);
     };
 
+    // Herstelde update functie met FormData support
     const handleUpdateSubmit = async () => {
         const token = localStorage.getItem('token');
         if (!editingTransaction) return;
 
+        setSaving(true);
         try {
-            const response = await fetch(`${API_URL}/api/transactions/${editingTransaction.id}`, {
-                method: 'PUT',
-                headers: { 
-                    'Content-Type': 'application/json', 
-                    'Authorization': `Bearer ${token}` 
-                },
-                body: JSON.stringify({
+            let body;
+            let headers = { 'Authorization': `Bearer ${token}` };
+
+            if (editFile) {
+                // SCENARIO 1: Bestand aanwezig -> FormData
+                const formData = new FormData();
+                formData.append('description', editingTransaction.description);
+                formData.append('amount', editingTransaction.amount);
+                formData.append('category', editingTransaction.category);
+                formData.append('notes', editingTransaction.notes || '');
+                formData.append('date', editingTransaction.date);
+                formData.append('receipt', editFile); 
+                
+                body = formData;
+            } else {
+                // SCENARIO 2: Geen bestand -> JSON
+                headers['Content-Type'] = 'application/json';
+                body = JSON.stringify({
                     description: editingTransaction.description,
                     amount: editingTransaction.amount,
                     category: editingTransaction.category,
                     notes: editingTransaction.notes,
                     date: editingTransaction.date
-                })
+                });
+            }
+
+            const response = await fetch(`${API_URL}/api/transactions/${editingTransaction.id}`, {
+                method: 'PUT',
+                headers: headers,
+                body: body
             });
 
             if (response.ok) {
                 const updatedTx = await response.json();
                 setTransactions(prev => prev.map(t => t.id === updatedTx.id ? updatedTx : t));
                 setEditModalOpen(false);
+                setEditFile(null);
+            } else {
+                alert("Er ging iets mis bij het opslaan.");
             }
         } catch (error) {
             console.error("Fout bij updaten:", error);
+            alert("Check console");
+        } finally {
+            setSaving(false);
         }
     };
 
     const toggleVisibility = async (id, e) => {
-        e.stopPropagation(); 
+        if(e) e.stopPropagation(); 
         const token = localStorage.getItem('token');
         try {
             const response = await fetch(`${API_URL}/api/transactions/${id}/toggle-visibility`, {
@@ -109,9 +167,7 @@ function Transactions() {
                 const updatedTx = await response.json();
                 setTransactions(prev => prev.map(t => t.id === id ? { ...t, isHidden: updatedTx.isHidden } : t));
             }
-        } catch (error) {
-            console.error("Fout bij toggelen:", error);
-        }
+        } catch (error) { console.error(error); }
     };
 
     const handleCSVUpload = (file) => {
@@ -132,9 +188,7 @@ function Transactions() {
             if (event.lengthComputable) {
                 const percentComplete = Math.round((event.loaded / event.total) * 100);
                 setUploadProgress(percentComplete);
-                if (percentComplete === 100) {
-                    setUploadStatus('Gegevens verwerken en opslaan...');
-                }
+                if (percentComplete === 100) setUploadStatus('Verwerken...');
             }
         };
 
@@ -142,26 +196,13 @@ function Transactions() {
             if (xhr.status >= 200 && xhr.status < 300) {
                 await fetchTransactions();
                 setUploadProgress(100);
-                setTimeout(() => {
-                    setProcessing(false);
-                    setUploadProgress(0);
-                }, 500);
+                setTimeout(() => { setProcessing(false); setUploadProgress(0); }, 500);
             } else {
-                try {
-                    const result = JSON.parse(xhr.responseText);
-                    alert(result.error || "Fout bij verwerken bestand");
-                } catch (e) {
-                    alert("Er is een onbekende fout opgetreden.");
-                }
                 setProcessing(false);
+                alert("Fout bij uploaden");
             }
         };
-
-        xhr.onerror = () => {
-            alert("Netwerkfout bij uploaden.");
-            setProcessing(false);
-        };
-
+        xhr.onerror = () => { alert("Netwerkfout"); setProcessing(false); };
         xhr.send(formData);
     };
 
@@ -180,7 +221,7 @@ function Transactions() {
                 setTransactions(prev => prev.filter(t => !selectedIds.includes(t.id)));
                 setSelectedIds([]);
             }
-        } catch (error) { console.error("Bulk delete error:", error); }
+        } catch (error) { console.error(error); }
     };
 
     const handleDelete = async (id, e) => {
@@ -211,12 +252,12 @@ function Transactions() {
                 setModalOpen(false);
                 setFormValues({ description: '', amount: '', category: 'Overig' });
             }
-        } catch (error) { console.error("Submit error:", error); }
+        } catch (error) { console.error(error); }
     };
 
     return (
         <Container size="lg" py="xl">
-            {/* Header Sectie */}
+            {/* Header */}
             <Group justify="space-between" mb="xl">
                 <div>
                     <Title order={2}>Transacties</Title>
@@ -236,28 +277,59 @@ function Transactions() {
                 </Group>
             </Group>
 
-            {/* Tabel Sectie */}
-            <Paper shadow="xs" radius="lg" p="xl" withBorder>
-                {selectedIds.length > 0 && (
-                    <Group mb="md" p="xs" bg="red.0" style={{ borderRadius: 8 }}>
-                        <Text size="sm" c="red">{selectedIds.length} geselecteerd</Text>
-                        <Button color="red" variant="subtle" size="xs" leftSection={<IconTrash size={14} />} onClick={handleBulkDelete}>
-                            Verwijderen
-                        </Button>
-                    </Group>
-                )}
+            {/* Filter & Zoek Balk */}
+            <Paper shadow="xs" radius="lg" p="md" mb="lg" withBorder>
+                <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+                    <TextInput 
+                        placeholder="Zoeken..." 
+                        leftSection={<IconSearch size={16} />}
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.currentTarget.value)}
+                    />
+                    
+                    <Select 
+                        placeholder="Type"
+                        leftSection={<IconFilter size={16} />}
+                        data={[{ value: 'all', label: 'Alles' }, { value: 'income', label: 'Inkomsten' }, { value: 'expense', label: 'Uitgaven' }]}
+                        value={filterType}
+                        onChange={setFilterType}
+                        allowDeselect={false}
+                    />
 
+                    <Group gap="xs" wrap="nowrap">
+                        <Select 
+                            placeholder="Categorie"
+                            data={uniqueCategories}
+                            value={filterCategory}
+                            onChange={setFilterCategory}
+                            searchable
+                            clearable
+                            style={{ flex: 1 }}
+                        />
+                        {hasActiveFilters && (
+                            <Tooltip label="Filters wissen">
+                                <ActionIcon variant="light" color="red" size="lg" radius="md" onClick={clearFilters}>
+                                    <IconX size={18} />
+                                </ActionIcon>
+                            </Tooltip>
+                        )}
+                    </Group>
+                </SimpleGrid>
+            </Paper>
+
+            {/* Tabel met Sticky Header */}
+            <Paper shadow="xs" radius="lg" p={0} withBorder style={{ overflow: 'hidden' }}>
                 {loading ? (
                     <Center py="xl"><Loader color="teal" /></Center>
                 ) : (
-                    <Table verticalSpacing="md" horizontalSpacing="md" highlightOnHover>
-                        <Table.Thead>
+                    <Table verticalSpacing="md" horizontalSpacing="md" highlightOnHover stickyHeader stickyHeaderOffset={0}>
+                        <Table.Thead bg="var(--mantine-color-body)">
                             <Table.Tr>
-                                <Table.Th style={{ width: rem(40) }}>
+                                <Table.Th style={{ width: rem(50), textAlign: 'center' }}>
                                     <Checkbox 
-                                        checked={selectedIds.length === transactions.length && transactions.length > 0}
-                                        indeterminate={selectedIds.length > 0 && selectedIds.length < transactions.length}
-                                        onChange={(e) => setSelectedIds(e.currentTarget.checked ? transactions.map(t => t.id) : [])}
+                                        checked={filteredTransactions.length > 0 && selectedIds.length === filteredTransactions.length}
+                                        indeterminate={selectedIds.length > 0 && selectedIds.length < filteredTransactions.length}
+                                        onChange={(e) => setSelectedIds(e.currentTarget.checked ? filteredTransactions.map(t => t.id) : [])}
                                         color="teal"
                                     />
                                 </Table.Th>
@@ -269,86 +341,128 @@ function Transactions() {
                             </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
-                            {transactions.map((t) => (
-                                <Table.Tr 
-                                    key={t.id} 
-                                    style={{ 
-                                        backgroundColor: selectedIds.includes(t.id) ? 'var(--mantine-color-teal-0)' : undefined,
-                                        opacity: t.isHidden ? 0.5 : 1 
-                                    }}
-                                >
-                                    <Table.Td onClick={(e) => e.stopPropagation()}>
-                                        <Checkbox 
-                                            checked={selectedIds.includes(t.id)}
-                                            onChange={() => toggleSelection(t.id)}
-                                            color="teal"
-                                        />
-                                    </Table.Td>
-                                    <Table.Td>
-                                        <Group gap="sm">
-                                            <ThemeIcon color={t.type === 'income' ? 'teal' : 'red'} variant="light" size="sm" radius="xl">
-                                                {t.type === 'income' ? <IconArrowUpRight size={14} /> : <IconArrowDownLeft size={14} />}
-                                            </ThemeIcon>
-                                            <Stack gap={0}>
-                                                {/* IMPLEMENTATIE OPTIE 1: Groep voor tekst + notitie icoon */}
-                                                <Group gap={5}>
-                                                    <Text size="sm" fw={500} td={t.isHidden ? 'line-through' : undefined}>
-                                                        {t.description}
-                                                    </Text>
-                                                    {t.notes && (
-                                                        <Tooltip label={t.notes} withArrow position="right" multiline w={220}>
-                                                            <IconNotes size={14} color="var(--mantine-color-gray-5)" style={{ cursor: 'help' }} />
-                                                        </Tooltip>
-                                                    )}
-                                                </Group>
-                                                {t.isHidden && <Text size="xs" c="dimmed">(Verborgen)</Text>}
-                                            </Stack>
-                                        </Group>
-                                    </Table.Td>
-                                    <Table.Td>
-                                        <Text size="sm" fw={700} c={t.type === 'income' ? 'teal' : 'red'}>
-                                            {t.type === 'income' ? '+' : '-'} €{t.amount.toFixed(2)}
-                                        </Text>
-                                    </Table.Td>
-                                    <Table.Td><Text size="sm">{t.category}</Text></Table.Td>
-                                    <Table.Td><Text size="xs" c="dimmed">{new Date(t.date || t.createdAt).toLocaleDateString()}</Text></Table.Td>
-                                    
-                                    <Table.Td onClick={(e) => e.stopPropagation()}>
-                                        <Group gap="xs" wrap="nowrap">
-                                            <Tooltip label="Bewerken" withArrow>
-                                                <ActionIcon 
-                                                    variant="subtle" 
-                                                    color="gray" 
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleRowClick(t);
-                                                    }}
-                                                >
-                                                    <IconPencil size={16} />
-                                                </ActionIcon>
-                                            </Tooltip>
-
-                                            <Tooltip label={t.isHidden ? "Zichtbaar maken" : "Verbergen in statistieken"} withArrow>
-                                                <ActionIcon 
-                                                    variant="subtle" 
-                                                    color={t.isHidden ? "orange" : "gray"} 
-                                                    onClick={(e) => toggleVisibility(t.id, e)}
-                                                >
-                                                    {t.isHidden ? <IconEyeOff size={16} /> : <IconEye size={16} />}
-                                                </ActionIcon>
-                                            </Tooltip>
-
-                                            <ActionIcon variant="subtle" color="gray" onClick={(e) => handleDelete(t.id, e)}>
-                                                <IconTrash size={16} />
-                                            </ActionIcon>
-                                        </Group>
-                                    </Table.Td>
-                                </Table.Tr>
-                            ))}
+                            {filteredTransactions.length > 0 ? (
+                                filteredTransactions.map((t) => (
+                                    <Table.Tr 
+                                        key={t.id} 
+                                        style={{ 
+                                            backgroundColor: selectedIds.includes(t.id) ? 'var(--mantine-color-teal-0)' : undefined,
+                                            opacity: t.isHidden ? 0.5 : 1 
+                                        }}
+                                    >
+                                        <Table.Td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
+                                            <Checkbox 
+                                                checked={selectedIds.includes(t.id)}
+                                                onChange={() => toggleSelection(t.id)}
+                                                color="teal"
+                                            />
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <Group gap="sm">
+                                                <ThemeIcon color={t.type === 'income' ? 'teal' : 'red'} variant="light" size="sm" radius="xl">
+                                                    {t.type === 'income' ? <IconArrowUpRight size={14} /> : <IconArrowDownLeft size={14} />}
+                                                </ThemeIcon>
+                                                <Stack gap={0}>
+                                                    <Group gap={5}>
+                                                        <Text size="sm" fw={500} td={t.isHidden ? 'line-through' : undefined}>
+                                                            {t.description}
+                                                        </Text>
+                                                        {t.notes && (
+                                                            <Tooltip label={t.notes} withArrow position="right" multiline w={220}>
+                                                                <IconNotes size={14} color="var(--mantine-color-gray-5)" style={{ cursor: 'help' }} />
+                                                            </Tooltip>
+                                                        )}
+                                                        {t.receiptUrl && (
+                                                            <Tooltip label="Bon bekijken" withArrow>
+                                                                <ActionIcon variant="transparent" size="xs" color="blue" onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    window.open(t.receiptUrl, '_blank');
+                                                                }}>
+                                                                    <IconPaperclip size={14} /> 
+                                                                </ActionIcon>
+                                                            </Tooltip>
+                                                        )}
+                                                    </Group>
+                                                    {t.isHidden && <Text size="xs" c="dimmed">(Verborgen)</Text>}
+                                                </Stack>
+                                            </Group>
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <Text size="sm" fw={700} c={t.type === 'income' ? 'teal' : 'red'}>
+                                                {t.type === 'income' ? '+' : '-'} €{t.amount.toFixed(2)}
+                                            </Text>
+                                        </Table.Td>
+                                        <Table.Td><Text size="sm">{t.category}</Text></Table.Td>
+                                        <Table.Td><Text size="xs" c="dimmed">{new Date(t.date || t.createdAt).toLocaleDateString()}</Text></Table.Td>
+                                        
+                                        <Table.Td onClick={(e) => e.stopPropagation()}>
+                                            <Group gap="xs" wrap="nowrap" justify="flex-end">
+                                                <Tooltip label="Bewerken" withArrow>
+                                                    <ActionIcon variant="subtle" color="teal" onClick={(e) => { e.stopPropagation(); handleRowClick(t); }}>
+                                                        <IconPencil style={{ width: rem(18), height: rem(18) }} />
+                                                    </ActionIcon>
+                                                </Tooltip>
+                                                <Menu shadow="md" width={200} position="bottom-end">
+                                                    <Menu.Target>
+                                                        <ActionIcon variant="subtle" color="gray"><IconDots style={{ width: rem(18), height: rem(18) }} /></ActionIcon>
+                                                    </Menu.Target>
+                                                    <Menu.Dropdown>
+                                                        {t.receiptUrl && (
+                                                            <Menu.Item leftSection={<IconPaperclip size={14} />} onClick={() => window.open(t.receiptUrl, '_blank')}>Bekijk Bon</Menu.Item>
+                                                        )}
+                                                        <Menu.Item leftSection={t.isHidden ? <IconEye size={14} /> : <IconEyeOff size={14} />} onClick={(e) => toggleVisibility(t.id, e)}>
+                                                            {t.isHidden ? 'Zichtbaar maken' : 'Verbergen'}
+                                                        </Menu.Item>
+                                                        <Menu.Divider />
+                                                        <Menu.Item color="red" leftSection={<IconTrash size={14} />} onClick={(e) => handleDelete(t.id, e)}>Verwijderen</Menu.Item>
+                                                    </Menu.Dropdown>
+                                                </Menu>
+                                            </Group>
+                                        </Table.Td>
+                                    </Table.Tr>
+                                ))
+                            ) : (
+                                <Table.Tr><Table.Td colSpan={6}><Center py="xl"><Text c="dimmed">Geen transacties.</Text></Center></Table.Td></Table.Tr>
+                            )}
                         </Table.Tbody>
                     </Table>
                 )}
             </Paper>
+
+            {/* Zwevende Actiebalk */}
+            <Affix position={{ bottom: 30, left: 0, right: 0 }} zIndex={100}>
+                <Transition transition="slide-up" mounted={selectedIds.length > 0}>
+                    {(transitionStyles) => (
+                        <Center>
+                            <Paper 
+                                style={transitionStyles} 
+                                shadow="lg" 
+                                radius="xl" 
+                                p="xs" 
+                                withBorder 
+                                bg="var(--mantine-color-body)"
+                            >
+                                <Group gap="md" px="sm">
+                                    <Text size="sm" fw={600} c="teal">{selectedIds.length} geselecteerd</Text>
+                                    <div style={{ width: 1, height: 20, backgroundColor: 'var(--mantine-color-gray-3)' }} />
+                                    <Button 
+                                        color="red" 
+                                        variant="light" 
+                                        size="compact-sm" 
+                                        leftSection={<IconTrash size={14} />} 
+                                        onClick={handleBulkDelete}
+                                    >
+                                        Verwijderen
+                                    </Button>
+                                    <ActionIcon variant="transparent" color="gray" onClick={() => setSelectedIds([])} size="sm">
+                                        <IconX size={14} />
+                                    </ActionIcon>
+                                </Group>
+                            </Paper>
+                        </Center>
+                    )}
+                </Transition>
+            </Affix>
 
             <Modal opened={modalOpen} onClose={() => setModalOpen(false)} title={<Text fw={700}>Nieuwe Transactie</Text>} centered radius="lg">
                 <Stack>
@@ -359,88 +473,63 @@ function Transactions() {
                         color={formType === 'income' ? 'teal' : 'red'} 
                         fullWidth
                     />
-                    <TextInput label="Omschrijving" placeholder="Bijv. Boodschappen" required value={formValues.description} onChange={(e) => setFormValues({...formValues, description: e.currentTarget.value})} />
-                    <NumberInput label="Bedrag" placeholder="0.00" prefix="€ " decimalScale={2} fixedDecimalScale required value={formValues.amount} onChange={(val) => setFormValues({...formValues, amount: val})} />
+                    <TextInput label="Omschrijving" required value={formValues.description} onChange={(e) => setFormValues({...formValues, description: e.currentTarget.value})} />
+                    <NumberInput label="Bedrag" prefix="€ " decimalScale={2} fixedDecimalScale required value={formValues.amount} onChange={(val) => setFormValues({...formValues, amount: val})} />
                     <Select label="Categorie" data={['Boodschappen', 'Huur', 'Salaris', 'Horeca', 'Vervoer', 'Abonnementen', 'Overig']} value={formValues.category} onChange={(val) => setFormValues({...formValues, category: val})} />
-                    <Button mt="md" color={formType === 'income' ? 'teal' : 'red'} radius="md" size="md" onClick={handleManualSubmit}>Toevoegen</Button>
+                    <Button mt="md" color={formType === 'income' ? 'teal' : 'red'} onClick={handleManualSubmit}>Toevoegen</Button>
                 </Stack>
             </Modal>
 
-            <Modal 
-                opened={editModalOpen} 
-                onClose={() => setEditModalOpen(false)} 
-                title={<Text fw={700}>Transactie Bewerken</Text>} 
-                centered 
-                radius="lg"
-            >
+            <Modal opened={editModalOpen} onClose={() => setEditModalOpen(false)} title={<Text fw={700}>Transactie Bewerken</Text>} centered radius="lg">
                 {editingTransaction && (
                     <Stack>
-                        <TextInput 
-                            label="Omschrijving" 
-                            value={editingTransaction.description} 
-                            onChange={(e) => setEditingTransaction({...editingTransaction, description: e.target.value})} 
-                        />
-                        <NumberInput 
-                            label="Bedrag" 
-                            value={editingTransaction.amount} 
-                            prefix="€ "
-                            decimalScale={2}
-                            fixedDecimalScale
-                            onChange={(val) => setEditingTransaction({...editingTransaction, amount: val})} 
-                        />
+                        <TextInput label="Omschrijving" value={editingTransaction.description} onChange={(e) => setEditingTransaction({...editingTransaction, description: e.target.value})} />
+                        <NumberInput label="Bedrag" value={editingTransaction.amount} prefix="€ " decimalScale={2} fixedDecimalScale onChange={(val) => setEditingTransaction({...editingTransaction, amount: val})} />
                         <Select 
                             label="Categorie" 
-                            data={[
-                                'Boodschappen', 'Woonlasten', 'Salaris', 'Horeca', 'Vervoer', 'Abonnementen', 'Overig', 
-                                'Toeslagen', 'Water', 'Verzekeringen', 'Voorgeschoten', 'Reizen', 'Cadeaus',
-                                'Internet en TV', 'Mobiel', 'Belastingen', 'Verzorging', 'Brandstof', 'OV', 
-                                'Auto', 'Huishouden', 'Afhalen', 'Entertainment', 'Sport', 'Shopping', 'Sparen', 'Aflossing'
-                            ]} 
+                            data={['Boodschappen', 'Woonlasten', 'Salaris', 'Horeca', 'Vervoer', 'Abonnementen', 'Overig', 'Toeslagen', 'Water', 'Verzekeringen', 'Reizen', 'Cadeaus', 'Internet en TV', 'Mobiel', 'Belastingen', 'Verzorging', 'Brandstof', 'OV', 'Auto', 'Huishouden', 'Afhalen', 'Entertainment', 'Sport', 'Shopping', 'Sparen', 'Aflossing']} 
                             searchable
                             value={editingTransaction.category} 
                             onChange={(val) => setEditingTransaction({...editingTransaction, category: val})} 
                         />
-                        <Textarea 
-                            label="Notities" 
-                            placeholder="Typ hier details, herinneringen of tags..."
-                            minRows={3}
-                            value={editingTransaction.notes || ''} 
-                            onChange={(e) => setEditingTransaction({...editingTransaction, notes: e.target.value})}
-                        />
+                        <Textarea label="Notities" minRows={3} value={editingTransaction.notes || ''} onChange={(e) => setEditingTransaction({...editingTransaction, notes: e.target.value})} />
                         
+                        {/* --- HIER IS HIJ WEER: HET UPLOAD VELD! --- */}
+                        <FileInput
+                            label="Bon toevoegen"
+                            description="Upload een foto of PDF van de bon (Max 5MB)"
+                            placeholder={editingTransaction.receiptUrl ? "Nieuwe bon kiezen (overschrijft huidige)" : "Upload afbeelding"}
+                            leftSection={<IconPaperclip size={16} />}
+                            clearable
+                            value={editFile}
+                            onChange={setEditFile}
+                            accept="image/png,image/jpeg,application/pdf"
+                        />
+                        {/* Status melding */}
+                        {editingTransaction.receiptUrl && !editFile && (
+                            <Group gap="xs">
+                                <IconPaperclip size={14} color="var(--mantine-color-teal-6)" />
+                                <Text size="xs" c="teal">Huidige bon gekoppeld</Text>
+                            </Group>
+                        )}
+                        {/* ------------------------------------------- */}
+
                         <Group justify="space-between" mt="md">
-                            <Button variant="subtle" color="red" size="xs" onClick={() => handleDelete(editingTransaction.id)}>
-                                Verwijderen
-                            </Button>
+                            <Button variant="subtle" color="red" size="xs" onClick={() => handleDelete(editingTransaction.id)}>Verwijderen</Button>
                             <Group>
                                 <Button variant="default" onClick={() => setEditModalOpen(false)}>Annuleren</Button>
-                                <Button leftSection={<IconDeviceFloppy size={18} />} color="teal" onClick={handleUpdateSubmit}>
-                                    Opslaan
-                                </Button>
+                                <Button leftSection={<IconDeviceFloppy size={18} />} color="teal" loading={saving} onClick={handleUpdateSubmit}>Opslaan</Button>
                             </Group>
                         </Group>
                     </Stack>
                 )}
             </Modal>
 
-            <Modal 
-                opened={processing} 
-                onClose={() => {}} 
-                withCloseButton={false}
-                centered radius="lg" padding="xl"
-            >
+            <Modal opened={processing} onClose={() => {}} withCloseButton={false} centered radius="lg" padding="xl">
                 <Stack align="center" gap="md">
-                    <ThemeIcon size={60} radius="100%" color="teal" variant="light">
-                        <IconFileSpreadsheet size={30} />
-                    </ThemeIcon>
+                    <ThemeIcon size={60} radius="100%" color="teal" variant="light"><IconFileSpreadsheet size={30} /></ThemeIcon>
                     <Title order={4}>{uploadStatus}</Title>
-                    <Text size="sm" c="dimmed" ta="center">
-                        {uploadProgress < 100 
-                            ? "Een ogenblik geduld, je bestand wordt geüpload." 
-                            : "De server verwerkt je transacties. Dit kan even duren bij grote bestanden."}
-                    </Text>
                     <Progress value={uploadProgress} size="lg" radius="xl" color="teal" striped animated style={{ width: '100%' }} />
-                    <Text size="xs" fw={700} c="teal">{uploadProgress}%</Text>
                 </Stack>
             </Modal>
         </Container>

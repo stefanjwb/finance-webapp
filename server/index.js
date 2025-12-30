@@ -1,65 +1,29 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const morgan = require('morgan'); // Logger tool
-require('dotenv').config();
-
-// Routes importeren
+const path = require('path'); // Nodig voor paden
 const authRoutes = require('./routes/authRoutes');
-const userRoutes = require('./routes/userRoutes'); 
 const transactionRoutes = require('./routes/transactionRoutes');
 const budgetRoutes = require('./routes/budgetRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 const app = express();
-const PORT = process.env.PORT || 5001;
 
-// ==========================
-// 1. Middleware
-// ==========================
-app.use(cors());              // Sta verbindingen van buitenaf (Frontend) toe
-app.use(express.json());      // Zorg dat we JSON data kunnen lezen
-app.use(morgan('dev'));       // Log elk verzoek in de terminal (voor debugging)
+app.use(cors());
+app.use(express.json());
 
-// ==========================
-// 2. Routes
-// ==========================
-// Koppel specifieke routes
+// NIEUW: Maak de 'uploads' map statisch toegankelijk
+// Zorg dat je een map 'uploads' hebt aangemaakt in je server root
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/budgets', budgetRoutes);
+app.use('/api/users', userRoutes);
 
-// Health Check (om te testen of server leeft)
-app.get('/', (req, res) => {
-    res.status(200).json({ 
-        status: 'online', 
-        message: 'De Belio API werkt correct!' 
-    });
-});
+const PORT = process.env.PORT || 5001;
 
-// ==========================
-// 3. Foutafhandeling
-// ==========================
-
-// 404 Handler: Als een route niet bestaat
-app.use((req, res, next) => {
-    const error = new Error('Niet gevonden');
-    error.status = 404;
-    next(error);
-});
-
-// Global Error Handler: Vangt alle andere fouten op (bijv. database fouten)
-app.use((error, req, res, next) => {
-    res.status(error.status || 500);
-    res.json({
-        error: {
-            message: error.message
-        }
-    });
-});
-
-// ==========================
-// 4. Server Starten
-// ==========================
 app.listen(PORT, () => {
-    console.log(`Server draait en luistert op http://localhost:${PORT}`);
+  console.log(`Server draait op poort ${PORT}`);
 });

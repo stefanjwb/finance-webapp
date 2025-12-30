@@ -7,7 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Het Gebruiker model
 model User {
   id            String   @id @default(auto()) @map("_id") @db.ObjectId
   username      String   @unique
@@ -17,12 +16,10 @@ model User {
   isPremium     Boolean  @default(false)
   createdAt     DateTime @default(now())
   
-  // Relaties
   transactions  Transaction[]
-  budgets       Budget[]      // <--- Deze regel is toegevoegd voor de relatie
+  budgets       Budget[]
 }
 
-// Het Transactie model
 model Transaction {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   amount      Float
@@ -33,18 +30,19 @@ model Transaction {
   isHidden    Boolean  @default(false)
   date        DateTime @default(now())
   
+  // NIEUW: Opslag voor de bon (URL naar het bestand)
+  receiptUrl  String?
+
   userId      String   @db.ObjectId
   user        User     @relation(fields: [userId], references: [id])
 }
 
-// Het Budget model (Aangepast voor MongoDB)
 model Budget {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   category  String
   amount    Float
-  type      String   @default("variable") // "fixed" of "variable"
+  type      String   @default("variable")
   
-  // Relatie velden moeten String + @db.ObjectId zijn in MongoDB
   userId    String   @db.ObjectId
   user      User     @relation(fields: [userId], references: [id])
   

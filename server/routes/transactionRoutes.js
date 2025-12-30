@@ -1,27 +1,48 @@
-// server/routes/transactionRoutes.js
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const transactionController = require('../controllers/transactionController');
-const authenticateToken = require('../middleware/authMiddleware');
+const path = require('path');
+const { 
+    getTransactions, 
+    createTransaction, 
+    deleteTransaction, 
+    updateTransaction,
+    toggleVisibility,
+    uploadCSV,
+    bulkDelete
+} = require('../controllers/transactionController');
+const authMiddleware = require('../middleware/authMiddleware');
 
-// Configuratie
-const upload = multer({ dest: 'uploads/' });
+// --- MULTER CONFIGURATIE (Voor bon uploads) ---
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/'); // Slaat op in de map 'uploads'
+    },
+    filename: (req, file, cb) => {
+        // Unieke naam: timestamp-bestandsnaam
+        cb(null, `${Date.now()}-${file.originalname}`);
+    }
+});
+const upload = multer({ storage });
 
-// Middleware: Alle onderstaande routes vereisen inloggen
-router.use(authenticateToken);
+// --- ROUTES ---
 
-// --- 1. Basis Lijst & Toevoegen ---
-router.get('/', transactionController.getTransactions);      // Haal alles op
-router.post('/', transactionController.createTransaction);   // Handmatig toevoegen
+router.use(authMiddleware);
 
-// --- 2. Speciale Acties ---
-router.post('/upload', upload.single('file'), transactionController.uploadCSV); // CSV Upload
-router.post('/bulk-delete', transactionController.deleteMultipleTransactions);  // Meerdere verwijderen
+router.get('/', getTransactions);
+router.post('/', createTransaction);
 
-// --- 3. Specifieke Transactie Acties (op ID) ---
-router.put('/:id', transactionController.updateTransaction);            // Bewerken (Update) [NIEUW]
-router.delete('/:id', transactionController.deleteTransaction);         // Verwijderen
-router.put('/:id/toggle-visibility', transactionController.toggleTransactionVisibility); // Oogje (Toggle)
+// CSV Upload gebruikt memoryStorage (zoals je waarschijnlijk al had in je controller)
+const csvUpload = multer({ storage: multer.memoryStorage() });
+router.post('/upload', csvUpload.single('file'), uploadCSV);
+
+router.post('/bulk-delete', bulkDelete);
+
+// AANPASSING: Voeg 'upload.single' toe aan de PUT route
+// We verwachten een veld genaamd 'receipt'
+router.put('/:id', upload.single('receipt'), updateTransaction);
+
+router.put('/:id/toggle-visibility', toggleVisibility);
+router.delete('/:id', deleteTransaction);
 
 module.exports = router;
