@@ -1,17 +1,16 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { 
     Container, Title, Text, Group, Paper, Button, SimpleGrid, 
-    ThemeIcon, Modal, TextInput, NumberInput, Select, Stack, 
-    Progress, ActionIcon, Center, Loader, rem, Badge
+    ThemeIcon, Modal, NumberInput, Select, Stack, 
+    Progress, ActionIcon, Center, Loader 
 } from '@mantine/core';
 import { 
-    IconPlus, IconTrash, IconBuildingBank, IconShoppingCart, 
-    IconCheck, IconAlertCircle 
+    IconPlus, IconTrash, IconBuildingBank, IconShoppingCart 
 } from '@tabler/icons-react';
 
 function Budgets() {
     const [budgets, setBudgets] = useState([]);
-    const [transactions, setTransactions] = useState([]); // Nodig om uitgaven te berekenen
+    const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [modalOpen, setModalOpen] = useState(false);
     
@@ -24,13 +23,11 @@ function Budgets() {
     const fetchData = async () => {
         const token = localStorage.getItem('token');
         try {
-            // 1. Haal budgetten op
             const resBudgets = await fetch(`${API_URL}/api/budgets`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const dataBudgets = await resBudgets.json();
             
-            // 2. Haal transacties op (om 'spent' te berekenen voor de huidige maand)
             const resTrans = await fetch(`${API_URL}/api/transactions`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -48,6 +45,8 @@ function Budgets() {
     // Budget Toevoegen
     const handleSubmit = async () => {
         const token = localStorage.getItem('token');
+        if (!formValues.category || !formValues.amount) return;
+
         try {
             const response = await fetch(`${API_URL}/api/budgets`, {
                 method: 'POST',
@@ -55,7 +54,7 @@ function Budgets() {
                 body: JSON.stringify(formValues)
             });
             if (response.ok) {
-                fetchData(); // Herlaad alles
+                fetchData();
                 setModalOpen(false);
                 setFormValues({ category: '', amount: '', type: 'variable' });
             }
@@ -75,11 +74,8 @@ function Budgets() {
     };
 
     // --- BEREKENINGEN ---
+    const currentMonthPrefix = new Date().toISOString().slice(0, 7);
 
-    // Huidige maand filteren voor transacties
-    const currentMonthPrefix = new Date().toISOString().slice(0, 7); // "2024-01"
-
-    // Helper: Hoeveel is er deze maand uitgegeven in een categorie?
     const getSpentAmount = (category) => {
         return transactions
             .filter(t => 
@@ -140,24 +136,34 @@ function Budgets() {
                     </Group>
                     
                     {fixedBudgets.length > 0 ? (
-                        <Paper withBorder radius="lg" overflow="hidden">
-                            {fixedBudgets.map((budget, index) => (
-                                <Group key={budget.id} justify="space-between" p="md" style={{ 
-                                    borderBottom: index !== fixedBudgets.length - 1 ? `1px solid ${rem(230)}` : 'none',
-                                    backgroundColor: index % 2 === 0 ? '#fff' : '#fafafa'
-                                }}>
-                                    <Group>
-                                        <ThemeIcon color="blue" variant="light" radius="md"><IconBuildingBank size={16}/></ThemeIcon>
-                                        <Text fw={600}>{budget.category}</Text>
+                        // AANGEPAST: p={0} is cruciaal om de inhoud tegen de rand te krijgen.
+                        <Paper withBorder radius="lg" p={0} style={{ overflow: 'hidden' }}>
+                            {fixedBudgets.map((budget, index) => {
+                                const isLast = index === fixedBudgets.length - 1;
+                                return (
+                                    <Group 
+                                        key={budget.id} 
+                                        justify="space-between" 
+                                        p="md" 
+                                        style={{ 
+                                            // Gebruik een echte kleurcode ipv rem()
+                                            borderBottom: !isLast ? '1px solid #f1f3f5' : 'none',
+                                            backgroundColor: index % 2 === 0 ? '#fff' : '#f8f9fa'
+                                        }}
+                                    >
+                                        <Group>
+                                            <ThemeIcon color="blue" variant="light" radius="md"><IconBuildingBank size={16}/></ThemeIcon>
+                                            <Text fw={600}>{budget.category}</Text>
+                                        </Group>
+                                        <Group>
+                                            <Text fw={700}>€ {budget.amount.toFixed(2)}</Text>
+                                            <ActionIcon color="red" variant="subtle" onClick={() => handleDelete(budget.id)}>
+                                                <IconTrash size={16} />
+                                            </ActionIcon>
+                                        </Group>
                                     </Group>
-                                    <Group>
-                                        <Text fw={700}>€ {budget.amount.toFixed(2)}</Text>
-                                        <ActionIcon color="red" variant="subtle" onClick={() => handleDelete(budget.id)}>
-                                            <IconTrash size={16} />
-                                        </ActionIcon>
-                                    </Group>
-                                </Group>
-                            ))}
+                                );
+                            })}
                         </Paper>
                     ) : (
                         <Paper withBorder p="lg" radius="lg"><Text c="dimmed" fs="italic">Geen vaste lasten ingesteld.</Text></Paper>
@@ -173,7 +179,7 @@ function Budgets() {
 
                     {variableBudgets.length > 0 ? variableBudgets.map(budget => {
                         const spent = getSpentAmount(budget.category);
-                        const percentage = Math.min((spent / budget.amount) * 100, 100);
+                        const percentage = budget.amount > 0 ? Math.min((spent / budget.amount) * 100, 100) : 0;
                         const isOverBudget = spent > budget.amount;
 
                         return (
@@ -232,10 +238,7 @@ function Budgets() {
                         searchable
                         creatable
                         getCreateLabel={(query) => `+ Maak ${query}`}
-                        onCreate={(query) => {
-                            // Dit is visueel, in de DB wordt het gewoon een string
-                            return query;
-                        }}
+                        onCreate={(query) => query}
                         value={formValues.category} 
                         onChange={(val) => setFormValues({...formValues, category: val})} 
                     />

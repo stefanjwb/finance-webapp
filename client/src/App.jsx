@@ -24,16 +24,19 @@ function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/budgets" element={<Budgets />} />
+        
+        {/* BELANGRIJK: Hier stond eerst een losse route naar /budgets. 
+            Die MOET weg zijn, anders zie je geen navbar. */}
 
+        {/* Alle pagina's binnen dit blok krijgen de Layout (Navbar + Header) */}
         <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/transactions" element={<Transactions />} />
-            
-            {/* 2. Route aangepast: Statistics component ipv PlaceholderPage */}
             <Route path="/statistics" element={<Statistics />} />
             
-            <Route path="/budgets" element={<PlaceholderPage title="Budgetten" />} />
+            {/* Hier plaatsen we Budgets, zodat hij IN de Layout valt */}
+            <Route path="/budgets" element={<Budgets />} />
+            
             <Route path="/settings" element={<PlaceholderPage title="Instellingen" />} />
             <Route path="/admin" element={<ProtectedRoute requiredRole="admin"> <AdminPanel /> </ProtectedRoute>} />
         </Route>
