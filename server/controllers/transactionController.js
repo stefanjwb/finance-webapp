@@ -23,11 +23,23 @@ const CATEGORIES = [
 // --- HULPFUNCTIES ---
 
 /**
+ * Zet een string om naar Title Case (Elk Woord Begint Met Hoofdletter).
+ * Voorbeeld: "ALBERT HEIJN" -> "Albert Heijn"
+ */
+function toTitleCase(str) {
+  if (!str) return '';
+  return str.replace(/\w\S*/g, (txt) => {
+    return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
+  });
+}
+
+/**
  * Verwerkt ÉÉN enkele transactie via OpenAI.
  * Dit is veel nauwkeuriger dan batchen.
  */
 async function categorizeSingleTransaction(description) {
-  if (!openai) return { shortDescription: description, category: 'Overig' };
+  // Als er geen OpenAI is, return de originele description maar dan wel netjes geformatteerd
+  if (!openai) return { shortDescription: toTitleCase(description), category: 'Overig' };
 
   try {
     const prompt = `
@@ -36,8 +48,9 @@ async function categorizeSingleTransaction(description) {
       Omschrijving: "${description}"
       
       Instructies:
-      1. Schoon de naam op (verwijder datum/tijd/codes/rekeningnummers). Houd alleen de naam van de winkel of partij over (bijv. "Albert Heijn", "Netflix"). Max 5 woorden.
-      2. Kies de beste categorie uit: ${CATEGORIES.join(', ')}.
+      1. Schoon de naam op (verwijder datum/tijd/codes/rekeningnummers). Houd alleen de naam van de winkel of partij over. Max 5 woorden.
+      2. Formatteer de naam in Title Case (bijv. "Albert Heijn" en NIET "ALBERT HEIJN").
+      3. Kies de beste categorie uit: ${CATEGORIES.join(', ')}.
       
       Output JSON: { "shortDescription": "...", "category": "..." }
     `;
@@ -51,15 +64,16 @@ async function categorizeSingleTransaction(description) {
 
     const result = JSON.parse(completion.choices[0].message.content);
     
-    // Fallback als AI iets geks teruggeeft
+    // We halen het resultaat alsnog door toTitleCase voor de zekerheid
     return {
-        shortDescription: result.shortDescription || description,
+        shortDescription: toTitleCase(result.shortDescription || description),
         category: result.category || 'Overig'
     };
 
   } catch (error) {
     console.error(`❌ AI Fout bij transactie "${description.substring(0, 20)}...":`, error.message);
-    return { shortDescription: description, category: 'Overig' };
+    // Bij een error ook de originele omschrijving netjes maken
+    return { shortDescription: toTitleCase(description), category: 'Overig' };
   }
 }
 
@@ -119,7 +133,15 @@ exports.createTransaction = async (req, res) => {
   if (!amount || !type) return res.status(400).json({ error: 'Bedrag/type verplicht.' });
   try {
     const tx = await prisma.transaction.create({
-      data: { amount: parseFloat(amount), type, category: category || 'Overig', description, notes, date: date ? new Date(date) : new Date(), userId: req.user.userId },
+      data: { 
+        amount: parseFloat(amount), 
+        type, 
+        category: category || 'Overig', 
+        description: toTitleCase(description), // Ook hier formatteren bij handmatige invoer
+        notes, 
+        date: date ? new Date(date) : new Date(), 
+        userId: req.user.userId 
+      },
     });
     res.status(201).json(tx);
   } catch (e) { res.status(500).json({ error: 'Fout bij aanmaken.' }); }
@@ -129,7 +151,13 @@ exports.updateTransaction = async (req, res) => {
   const { id } = req.params;
   const { description, amount, category, notes, date } = req.body;
   try {
-    const updateData = { description, amount: amount ? parseFloat(amount) : undefined, category, notes, date: date ? new Date(date) : undefined };
+    const updateData = { 
+        description: description ? toTitleCase(description) : undefined, // Ook hier formatteren
+        amount: amount ? parseFloat(amount) : undefined, 
+        category, 
+        notes, 
+        date: date ? new Date(date) : undefined 
+    };
     if (req.file) updateData.receiptUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     const tx = await prisma.transaction.update({ where: { id, userId: req.user.userId }, data: updateData });
     res.json(tx);
