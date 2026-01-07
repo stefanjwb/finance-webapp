@@ -4,12 +4,13 @@ const csvParser = require('csv-parser');
 const { Readable } = require('stream');
 const OpenAI = require('openai');
 
-// Initialiseer OpenAI (met check)
-const apiKey = process.env.OPENAI_API_KEY;
-if (!apiKey) {
-    console.warn("⚠️ LET OP: Geen OPENAI_API_KEY gevonden in .env. AI categorisatie zal niet werken.");
+// --- CONFIGURATIE ---
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+
+if (!openai) {
+    console.warn("⚠️ WAARSCHUWING: Geen OPENAI_API_KEY gevonden. AI-features zijn uitgeschakeld.");
 }
-const openai = new OpenAI({ apiKey: apiKey });
 
 const CATEGORIES = [
   'Boodschappen', 'Woonlasten', 'Salaris', 'Horeca', 'Vervoer', 'Abonnementen', 
@@ -19,96 +20,197 @@ const CATEGORIES = [
   'Shopping', 'Sparen', 'Aflossing'
 ];
 
-// --- HULPFUNCTIE: AI CATEGORISATIE ---
+// --- HULPFUNCTIES ---
+
+/**
+ * Verwerkt een batch transacties via OpenAI om categorieën en korte beschrijvingen te genereren.
+ * @param {Array} transactionsBatch 
+ * @returns {Promise<Array>}
+ */
 async function categorizeWithAI(transactionsBatch) {
-  if (!process.env.OPENAI_API_KEY) return []; // Sla over als geen key
+  if (!openai) return [];
 
   try {
-    console.log(`🤖 AI aanroepen voor batch van ${transactionsBatch.length} items...`);
+    // Optimalisatie: Alleen de beschrijving sturen bespaart tokens
+    const descriptions = transactionsBatch.map(t => t.description).join('\n');
+    
     const prompt = `
-      Je bent een financiële assistent. Hier is een lijst met banktransacties.
-      Voor elke transactie wil ik dat je:
-      1. De omschrijving korter en leesbaarder maakt.
-      2. De beste categorie kiest uit: ${CATEGORIES.join(', ')}.
+      Je bent een financiële categorisatie-expert.
+      Taak:
+      1. Verkort de transactie-omschrijving naar een leesbare titel.
+      2. Kies de beste categorie uit deze lijst: ${CATEGORIES.join(', ')}.
+      
+      Input lijst:
+      ${JSON.stringify(transactionsBatch.map(t => t.description))}
 
-      Geef JSON array terug met objecten: { "originalDescription", "shortDescription", "category" }.
-      Input: ${JSON.stringify(transactionsBatch)}
+      Geef ALLEEN een JSON array terug met objecten in dezelfde volgorde: 
+      [{"shortDescription": "...", "category": "..."}]
     `;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.2,
+      temperature: 0.1, // Lager is consistenter
+      response_format: { type: "json_object" } // Forceer JSON output (indien ondersteund door modelversie)
     });
 
     const content = completion.choices[0].message.content;
-    const jsonString = content.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(jsonString);
+    const parsed = JSON.parse(content);
+    
+    // Support voor zowel direct array als wrapper object (afhankelijk van GPT grillen)
+    return Array.isArray(parsed) ? parsed : (parsed.transactions || parsed.data || []);
 
   } catch (error) {
-    console.error("❌ Fout bij AI verwerking:", error.message);
-    return [];
+    console.error("❌ AI Fout:", error.message);
+    // Fallback: retourneer lege resultaten zodat het proces niet crasht
+    return transactionsBatch.map(() => ({ shortDescription: null, category: 'Overig' }));
   }
 }
 
-// --- BESTAANDE CONTROLLER FUNCTIES ---
+/**
+ * Normaliseert een CSV-rij naar een standaard transactie-object.
+ * Ondersteunt verschillende bankformaten (o.a. Bunq, ING, Rabo).
+ */
+function parseTransactionRow(row) {
+    const desc = row['Description'] || row['Name'] || row['Omschrijving'] || row['description'] || row['Mededelingen'] || 'Geïmporteerd';
+    const amountRaw = row['Amount'] || row['Bedrag (EUR)'] || row['amount'] || row['Bedrag'];
+    const dateRaw = row['Date'] || row['Datum'] || row['date'];
+    const typeRaw = row['Af/Bij'] || '';
+
+    if (!amountRaw) return null;
+
+    // Bedrag normaliseren (komma naar punt, valutatekens weg)
+    let amount = parseFloat(amountRaw.toString().replace('€', '').replace(',', '.').trim());
+    let type = 'income';
+
+    // Type bepalen
+    if (amount < 0) {
+        type = 'expense';
+        amount = Math.abs(amount);
+    } else if (typeRaw.toLowerCase() === 'af') {
+        type = 'expense';
+    }
+
+    // Datum valideren
+    const date = dateRaw ? new Date(dateRaw) : new Date();
+    if (isNaN(date.getTime())) return null; // Skip ongeldige data
+
+    return {
+        description: desc,
+        amount,
+        type,
+        date,
+        originalRow: row // Optioneel bewaren voor debug
+    };
+}
+
+// --- CONTROLLER FUNCTIES ---
 
 exports.getTransactions = async (req, res) => {
   try {
-    const transactions = await prisma.transaction.findMany({
-      where: { userId: req.user.userId },
-      orderBy: { date: 'desc' },
+    // Haal query parameters op voor paginering en filtering
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+    
+    const { startDate, endDate, category, type } = req.query;
+
+    // Bouw het filter object op
+    const whereClause = { userId: req.user.userId };
+    
+    if (startDate && endDate) {
+        whereClause.date = {
+            gte: new Date(startDate),
+            lte: new Date(endDate)
+        };
+    }
+    if (category) whereClause.category = category;
+    if (type) whereClause.type = type;
+
+    // Haal data op + totaal aantal voor frontend paginering
+    const [transactions, totalCount] = await Promise.all([
+        prisma.transaction.findMany({
+            where: whereClause,
+            orderBy: { date: 'desc' },
+            skip: skip,
+            take: limit
+        }),
+        prisma.transaction.count({ where: whereClause })
+    ]);
+
+    res.json({
+        data: transactions,
+        pagination: {
+            total: totalCount,
+            page,
+            pages: Math.ceil(totalCount / limit)
+        }
     });
-    res.json(transactions);
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Fout bij ophalen transacties' });
+    console.error("Fout bij ophalen transacties:", error);
+    res.status(500).json({ error: 'Interne serverfout bij ophalen transacties' });
   }
 };
 
 exports.createTransaction = async (req, res) => {
   const { amount, type, category, description, notes, date } = req.body;
+  
+  // Simpele validatie
+  if (!amount || !type) {
+      return res.status(400).json({ error: 'Bedrag en type zijn verplicht.' });
+  }
+
   try {
     const transaction = await prisma.transaction.create({
       data: {
         amount: parseFloat(amount),
         type,
-        category,
+        category: category || 'Overig',
         description,
         notes,
         date: date ? new Date(date) : new Date(),
         userId: req.user.userId,
       },
     });
-    res.json(transaction);
+    res.status(201).json(transaction);
   } catch (error) {
-    res.status(500).json({ error: 'Fout bij aanmaken transactie' });
+    console.error("Create error:", error);
+    res.status(500).json({ error: 'Kon transactie niet aanmaken.' });
   }
 };
 
 exports.updateTransaction = async (req, res) => {
   const { id } = req.params;
   const { description, amount, category, notes, date } = req.body;
+
   try {
     const updateData = {
         description,
-        amount: parseFloat(amount),
+        amount: amount ? parseFloat(amount) : undefined,
         category,
         notes,
         date: date ? new Date(date) : undefined
     };
+
     if (req.file) {
         const baseUrl = `${req.protocol}://${req.get('host')}`;
         updateData.receiptUrl = `${baseUrl}/uploads/${req.file.filename}`;
     }
+
+    // Prisma gooit zelf een error als record niet bestaat, maar nette check is beter
     const transaction = await prisma.transaction.update({
-      where: { id: id, userId: req.user.userId },
+      where: { id: id, userId: req.user.userId }, // Check userId voor veiligheid
       data: updateData,
     });
+    
     res.json(transaction);
   } catch (error) {
+    if (error.code === 'P2025') {
+        return res.status(404).json({ error: "Transactie niet gevonden." });
+    }
     console.error(error);
-    res.status(500).json({ error: 'Fout bij updaten transactie' });
+    res.status(500).json({ error: 'Update mislukt.' });
   }
 };
 
@@ -120,15 +222,41 @@ exports.deleteTransaction = async (req, res) => {
     });
     res.json({ message: 'Transactie verwijderd' });
   } catch (error) {
-    res.status(500).json({ error: 'Fout bij verwijderen' });
+    res.status(500).json({ error: 'Verwijderen mislukt.' });
   }
+};
+
+exports.bulkDelete = async (req, res) => {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: "Geen ID's opgegeven." });
+    }
+
+    try {
+        const result = await prisma.transaction.deleteMany({
+            where: { 
+                id: { in: ids }, 
+                userId: req.user.userId 
+            }
+        });
+        res.json({ message: `${result.count} transacties verwijderd.` });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 };
 
 exports.toggleVisibility = async (req, res) => {
     const { id } = req.params;
     try {
-        const tx = await prisma.transaction.findUnique({ where: { id } });
-        if (!tx) return res.status(404).json({ error: "Niet gevonden" });
+        const tx = await prisma.transaction.findUnique({ 
+            where: { id },
+            select: { isHidden: true, userId: true } // Alleen nodige velden
+        });
+
+        if (!tx || tx.userId !== req.user.userId) {
+            return res.status(404).json({ error: "Niet gevonden" });
+        }
+
         const updated = await prisma.transaction.update({
             where: { id },
             data: { isHidden: !tx.isHidden }
@@ -139,126 +267,84 @@ exports.toggleVisibility = async (req, res) => {
     }
 };
 
-exports.bulkDelete = async (req, res) => {
-    const { ids } = req.body;
-    try {
-        await prisma.transaction.deleteMany({
-            where: { id: { in: ids }, userId: req.user.userId }
-        });
-        res.json({ message: 'Succesvol verwijderd' });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-};
+// --- GEOPTIMALISEERDE CSV IMPORT ---
 
-// --- NIEUWE CSV UPLOAD MET LOGGING ---
-// --- NIEUWE CSV UPLOAD MET CORRECTE MAPPING ---
 exports.uploadCSV = async (req, res) => {
-  console.log("📂 Upload request ontvangen...");
-  
-  if (!req.file) {
-      console.log("❌ Geen bestand gevonden in req.file");
-      return res.status(400).json({ error: 'Geen bestand geüpload' });
-  }
+  if (!req.file) return res.status(400).json({ error: 'Geen bestand geüpload' });
 
-  console.log(`📄 Bestand ontvangen: ${req.file.originalname} (${req.file.size} bytes)`);
-
+  console.log(`📥 Start import: ${req.file.originalname}`);
   const rawRows = [];
+  
+  // Gebruik stream voor memory efficiency
   const stream = Readable.from(req.file.buffer.toString());
 
   stream
-      // BELANGRIJK: separator ingesteld op puntkomma (;) voor Bunq/NL banken
-      .pipe(csvParser({ separator: ';' })) 
+      .pipe(csvParser({ separator: ';' })) // Check of separator dynamisch moet zijn
       .on('data', (data) => rawRows.push(data))
       .on('end', async () => {
-          console.log(`📊 CSV geparsed: ${rawRows.length} rijen gevonden.`);
-          
-          if (rawRows.length > 0) {
-              // Log de eerste rij om te zien of de kolomnamen nu wel kloppen (zonder quotes)
-              console.log("🔍 Eerste rij data (geparsed):", rawRows[0]);
-          }
-
           try {
-              const parsedTransactions = [];
+              // 1. Parse alle rijen
+              const validTransactions = rawRows
+                  .map(parseTransactionRow)
+                  .filter(t => t !== null);
 
-              for (const row of rawRows) {
-                  // Mapping logica uitgebreid met Engelse termen uit je log
-                  // Bunq gebruikt vaak 'Description' en 'Name'. 
-                  const desc = row['Description'] || row['Name'] || row['Omschrijving'] || row['description'] || 'Geïmporteerd';
-                  const amountStr = row['Amount'] || row['Bedrag (EUR)'] || row['amount'] || row['Bedrag'];
-                  const dateStr = row['Date'] || row['Datum'] || row['date'];
-                  
-                  // Soms heet de kolom 'Af/Bij' (NL) of is het bedrag negatief
-                  const typeRaw = row['Af/Bij'] || ''; 
-
-                  // Debug log als amount mist
-                  if (!amountStr) {
-                      continue;
-                  }
-
-                  // Bedrag schoonmaken (komma naar punt)
-                  let amount = parseFloat(amountStr.replace(',', '.'));
-                  let type = 'income'; // Default
-
-                  // Logica voor type bepaling (Inkomen vs Uitgave)
-                  if (amount < 0) {
-                      type = 'expense';
-                      amount = Math.abs(amount); // Sla positief op in DB
-                  } else if (typeRaw.toLowerCase() === 'af') {
-                      type = 'expense';
-                  } else {
-                      // Als bedrag positief is en geen 'Af/Bij' kolom zegt 'Af', is het inkomen
-                      type = 'income';
-                  }
-                  
-                  // *Extra check*: Bunq exporteert soms uitgaven als positief getal als er geen minteken staat?
-                  // Als je merkt dat ALLES als 'income' binnenkomt, moeten we hier kijken naar een andere kolom.
-                  // Voor nu gaan we uit van standaard gedrag (minteken = uitgave).
-
-                  parsedTransactions.push({
-                      description: desc,
-                      amount,
-                      type,
-                      date: dateStr ? new Date(dateStr) : new Date(),
-                  });
+              if (validTransactions.length === 0) {
+                  return res.status(400).json({ error: "Geen geldige transacties gevonden in CSV." });
               }
 
-              console.log(`✅ ${parsedTransactions.length} geldige transacties klaar voor verwerking.`);
+              console.log(`✅ ${validTransactions.length} transacties geparsed. Start AI verwerking...`);
 
-              // Batch verwerking (met AI)
-              const BATCH_SIZE = 10;
-              let processedCount = 0;
+              // 2. Batch verwerking voor AI & Database Insert
+              // We verwerken ze in chunks om memory spikes te voorkomen en inserten ze per chunk
+              const BATCH_SIZE = 20; // Grotere batch voor efficiëntie
+              let totalInserted = 0;
 
-              for (let i = 0; i < parsedTransactions.length; i += BATCH_SIZE) {
-                  const batch = parsedTransactions.slice(i, i + BATCH_SIZE);
-                  const batchForAI = batch.map(t => ({ description: t.description }));
+              for (let i = 0; i < validTransactions.length; i += BATCH_SIZE) {
+                  const batch = validTransactions.slice(i, i + BATCH_SIZE);
                   
-                  const aiResults = await categorizeWithAI(batchForAI);
-
-                  for (let j = 0; j < batch.length; j++) {
-                      const originalTx = batch[j];
-                      const aiInfo = aiResults[j] || { shortDescription: originalTx.description, category: 'Overig' };
-
-                      await prisma.transaction.create({
-                          data: {
-                              amount: originalTx.amount,
-                              type: originalTx.type,
-                              category: aiInfo.category || 'Overig',
-                              description: aiInfo.shortDescription || originalTx.description,
-                              date: originalTx.date,
-                              userId: req.user.userId
-                          }
+                  // AI Categorisatie (parallel aanroepen kan, maar sequentieel is veiliger voor rate limits)
+                  let enrichedBatch = batch;
+                  if (openai) {
+                      const aiResults = await categorizeWithAI(batch);
+                      // Merge AI resultaten
+                      enrichedBatch = batch.map((tx, index) => {
+                          const aiData = aiResults[index] || {};
+                          return {
+                              ...tx,
+                              category: aiData.category || 'Overig',
+                              description: aiData.shortDescription || tx.description
+                          };
                       });
-                      processedCount++;
                   }
+
+                  // Voeg userId toe en formatteer voor Prisma
+                  const dbData = enrichedBatch.map(tx => ({
+                      amount: tx.amount,
+                      type: tx.type,
+                      category: tx.category || 'Overig',
+                      description: tx.description,
+                      date: tx.date,
+                      userId: req.user.userId,
+                      isHidden: false
+                  }));
+
+                  // 3. BULK INSERT (Veel sneller dan loop met create)
+                  const result = await prisma.transaction.createMany({
+                      data: dbData
+                  });
+                  
+                  totalInserted += result.count;
+                  console.log(`💾 Batch opgeslagen: ${result.count} items.`);
               }
 
-              console.log(`🎉 Klaar! ${processedCount} transacties opgeslagen.`);
-              res.json({ message: `${processedCount} transacties succesvol verwerkt en gecategoriseerd.` });
+              res.json({ 
+                  message: 'Import succesvol!', 
+                  count: totalInserted 
+              });
 
           } catch (error) {
-              console.error("❌ CRASH tijdens verwerking:", error);
-              res.status(500).json({ error: 'Fout bij verwerken CSV' });
+              console.error("❌ Import fout:", error);
+              res.status(500).json({ error: 'Fout bij verwerken CSV import.' });
           }
       });
 };

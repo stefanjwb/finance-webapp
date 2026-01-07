@@ -50,8 +50,8 @@ function Transactions() {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (response.ok) {
-                const data = await response.json();
-                setTransactions(data);
+                const result = await response.json();
+                setTransactions(result.data || result); 
             }
         } catch (error) {
             console.error("Fout bij ophalen transacties:", error);

@@ -36,8 +36,8 @@ function Dashboard() {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (response.ok) {
-                const data = await response.json();
-                setTransactions(data);
+                const result = await response.json();
+                setTransactions(result.data || result);
             }
         } catch (error) { console.error(error); } finally { setLoading(false); }
     }, [API_URL]);
